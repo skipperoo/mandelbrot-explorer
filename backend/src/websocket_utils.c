@@ -5,7 +5,7 @@ static const char base64_table[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 void base64_encode(const unsigned char *src, size_t len, char *out) {
-  int i, j;
+  size_t i, j;
   for (i = 0, j = 0; i < len; i += 3) {
     uint32_t v = src[i];
     v = i + 1 < len ? v << 8 | src[i + 1] : v << 8;

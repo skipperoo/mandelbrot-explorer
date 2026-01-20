@@ -6,7 +6,7 @@ CC = gcc
 # -pthread: Enable threading support
 # -I src/include: Look for headers in the include folder
 CFLAGS = -Wextra -O3 -ffast-math -march=native -pthread -I src/include
-LDFLAGS = -lm -pthread
+LDFLAGS = -lm -pthread -lGL -lEGL
 
 # Directories
 SRC_DIR = src

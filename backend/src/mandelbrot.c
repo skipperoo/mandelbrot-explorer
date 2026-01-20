@@ -8,11 +8,12 @@
 #define MAX_ITER 1000
 #define THREAD_COUNT 12 // Set this to your logical core count
 
+static char current_gpu_vendor[64] = "None";
+
 // Viewport settings
 const double CENTER_X = -0.743643887037158704752191506114774;
 const double CENTER_Y = 0.131825904205311970493132056385139;
 const double ZOOM = 0.5; // Scale
-
 // Shared Data Structure for Threads
 typedef struct {
   uint16_t *buffer;
@@ -237,6 +238,338 @@ void render_simd(uint16_t *buffer, int width, int start_row, int end_row,
   }
 #endif
 }
+
+// ==========================================
+// 4. OPENGL KERNEL (GPU Acceleration)
+// ==========================================
+
+// Global GL function pointers
+static PFNGLCREATESHADERPROC glCreateShader_ptr;
+static PFNGLSHADERSOURCEPROC glShaderSource_ptr;
+static PFNGLCOMPILESHADERPROC glCompileShader_ptr;
+static PFNGLGETSHADERIVPROC glGetShaderiv_ptr;
+static PFNGLGETSHADERINFOLOGPROC glGetShaderInfoLog_ptr;
+static PFNGLCREATEPROGRAMPROC glCreateProgram_ptr;
+static PFNGLATTACHSHADERPROC glAttachShader_ptr;
+static PFNGLLINKPROGRAMPROC glLinkProgram_ptr;
+static PFNGLGETPROGRAMIVPROC glGetProgramiv_ptr;
+static PFNGLGETPROGRAMINFOLOGPROC glGetProgramInfoLog_ptr;
+static PFNGLUSEPROGRAMPROC glUseProgram_ptr;
+static PFNGLGETUNIFORMLOCATIONPROC glGetUniformLocation_ptr;
+static PFNGLUNIFORM1IPROC glUniform1i_ptr;
+static PFNGLUNIFORM1DPROC glUniform1d_ptr;
+static PFNGLGENBUFFERSPROC glGenBuffers_ptr;
+static PFNGLBINDBUFFERPROC glBindBuffer_ptr;
+static PFNGLBUFFERDATAPROC glBufferData_ptr;
+static PFNGLDISPATCHCOMPUTEPROC glDispatchCompute_ptr;
+static PFNGLMEMORYBARRIERPROC glMemoryBarrier_ptr;
+static PFNGLGETBUFFERSUBDATAPROC glGetBufferSubData_ptr;
+static PFNGLBINDBUFFERBASEPROC glBindBufferBase_ptr;
+
+static EGLDisplay egl_display = EGL_NO_DISPLAY;
+static EGLContext egl_context = EGL_NO_CONTEXT;
+static GLuint gl_program = 0;
+static GLuint gl_ssbo = 0;
+static size_t gl_ssbo_size = 0;
+static pthread_mutex_t gl_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+typedef const GLubyte *(*PFNGLGETSTRINGPROC)(GLenum);
+
+const char *compute_shader_source =
+    "#version 430 core\n"
+    "#extension GL_ARB_gpu_shader_fp64 : enable\n"
+    "layout(local_size_x = 16, local_size_y = 16) in;\n"
+    "layout(std430, binding = 0) writeonly buffer OutputBuffer {\n"
+    "    uint iterations[];\n"
+    "};\n"
+    "uniform int width;\n"
+    "uniform int rows;\n"
+    "uniform int max_iterations;\n"
+    "uniform double x_min;\n"
+    "uniform double y_min;\n"
+    "uniform double x_scale;\n"
+    "uniform double y_scale;\n"
+    "uniform int start_row;\n"
+    "void main() {\n"
+    "    uint px = gl_GlobalInvocationID.x;\n"
+    "    uint py = gl_GlobalInvocationID.y;\n"
+    "    if (px >= width || py >= uint(rows)) return;\n"
+    "    double x0 = x_min + double(px) * x_scale;\n"
+    "    double y0 = y_min + double(py + uint(start_row)) * y_scale;\n"
+    "    double x = 0.0, y = 0.0, x2 = 0.0, y2 = 0.0;\n"
+    "    int iter = 0;\n"
+    "    while (x2 + y2 <= 4.0 && iter < max_iterations) {\n"
+    "        y = 2.0 * x * y + y0;\n"
+    "        x = x2 - y2 + x0;\n"
+    "        x2 = x * x;\n"
+    "        y2 = y * y;\n"
+    "        iter++;\n"
+    "    }\n"
+    "    iterations[py * width + px] = uint(iter);\n"
+    "}\n";
+
+void shutdown_opengl() {
+  if (egl_display != EGL_NO_DISPLAY) {
+    eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    if (egl_context != EGL_NO_CONTEXT)
+      eglDestroyContext(egl_display, egl_context);
+    eglTerminate(egl_display);
+    egl_display = EGL_NO_DISPLAY;
+    egl_context = EGL_NO_CONTEXT;
+  }
+  strcpy(current_gpu_vendor, "None");
+}
+
+void setup_opengl_resources() {
+  // 1. Load Pointers (Crucial! Pointers might change between drivers)
+  glCreateShader_ptr =
+      (PFNGLCREATESHADERPROC)eglGetProcAddress("glCreateShader");
+  glShaderSource_ptr =
+      (PFNGLSHADERSOURCEPROC)eglGetProcAddress("glShaderSource");
+  glCompileShader_ptr =
+      (PFNGLCOMPILESHADERPROC)eglGetProcAddress("glCompileShader");
+  glGetShaderiv_ptr = (PFNGLGETSHADERIVPROC)eglGetProcAddress("glGetShaderiv");
+  glGetShaderInfoLog_ptr =
+      (PFNGLGETSHADERINFOLOGPROC)eglGetProcAddress("glGetShaderInfoLog");
+  glCreateProgram_ptr =
+      (PFNGLCREATEPROGRAMPROC)eglGetProcAddress("glCreateProgram");
+  glAttachShader_ptr =
+      (PFNGLATTACHSHADERPROC)eglGetProcAddress("glAttachShader");
+  glLinkProgram_ptr = (PFNGLLINKPROGRAMPROC)eglGetProcAddress("glLinkProgram");
+  glGetProgramiv_ptr =
+      (PFNGLGETPROGRAMIVPROC)eglGetProcAddress("glGetProgramiv");
+  glGetProgramInfoLog_ptr =
+      (PFNGLGETPROGRAMINFOLOGPROC)eglGetProcAddress("glGetProgramInfoLog");
+  glUseProgram_ptr = (PFNGLUSEPROGRAMPROC)eglGetProcAddress("glUseProgram");
+  glUniform1i_ptr = (PFNGLUNIFORM1IPROC)eglGetProcAddress("glUniform1i");
+  glUniform1d_ptr = (PFNGLUNIFORM1DPROC)eglGetProcAddress("glUniform1d");
+  glGenBuffers_ptr = (PFNGLGENBUFFERSPROC)eglGetProcAddress("glGenBuffers");
+  glBindBuffer_ptr = (PFNGLBINDBUFFERPROC)eglGetProcAddress("glBindBuffer");
+  glBufferData_ptr = (PFNGLBUFFERDATAPROC)eglGetProcAddress("glBufferData");
+  glDispatchCompute_ptr =
+      (PFNGLDISPATCHCOMPUTEPROC)eglGetProcAddress("glDispatchCompute");
+  glMemoryBarrier_ptr =
+      (PFNGLMEMORYBARRIERPROC)eglGetProcAddress("glMemoryBarrier");
+  glGetBufferSubData_ptr =
+      (PFNGLGETBUFFERSUBDATAPROC)eglGetProcAddress("glGetBufferSubData");
+  glBindBufferBase_ptr =
+      (PFNGLBINDBUFFERBASEPROC)eglGetProcAddress("glBindBufferBase");
+  glGetUniformLocation_ptr =
+      (PFNGLGETUNIFORMLOCATIONPROC)eglGetProcAddress("glGetUniformLocation");
+
+  // 2. Compile Shader (Code from your original init_opengl_internal)
+  GLuint shader = glCreateShader_ptr(GL_COMPUTE_SHADER);
+  glShaderSource_ptr(shader, 1, &compute_shader_source, NULL);
+  glCompileShader_ptr(shader);
+
+  // ... (Add your error checking here) ...
+
+  gl_program = glCreateProgram_ptr();
+  glAttachShader_ptr(gl_program, shader);
+  glLinkProgram_ptr(gl_program);
+
+  // ... (Add your linking error checking here) ...
+
+  // 3. Create Buffer
+  glGenBuffers_ptr(1, &gl_ssbo);
+}
+
+static int init_opengl(const char *target_vendor) {
+  // If already initialized for this vendor, do nothing
+  if (strstr(current_gpu_vendor, target_vendor) != NULL) {
+    return 1; // Success, already loaded
+  }
+
+  // Otherwise, perform a full teardown and search
+  shutdown_opengl();
+  // printf("EGL: Switching to %s GPU...\n", target_vendor);
+
+  // Get EGL Extension pointers
+  PFNEGLQUERYDEVICESEXTPROC eglQueryDevicesEXT =
+      (PFNEGLQUERYDEVICESEXTPROC)eglGetProcAddress("eglQueryDevicesEXT");
+  PFNEGLGETPLATFORMDISPLAYPROC eglGetPlatformDisplay =
+      (PFNEGLGETPLATFORMDISPLAYPROC)eglGetProcAddress("eglGetPlatformDisplay");
+
+  if (!eglQueryDevicesEXT || !eglGetPlatformDisplay) {
+    fprintf(stderr, "EGL: Device enumeration extensions missing.\n");
+    return 0;
+  }
+
+#define MAX_DEVICES 16
+  EGLDeviceEXT devices[MAX_DEVICES];
+  EGLint num_devices;
+  eglQueryDevicesEXT(MAX_DEVICES, devices, &num_devices);
+
+  for (int i = 0; i < num_devices; i++) {
+    // Try to initialize this device to peek at its Vendor String
+    EGLDisplay attempt_dpy =
+        eglGetPlatformDisplay(EGL_PLATFORM_DEVICE_EXT, devices[i], NULL);
+    if (attempt_dpy == EGL_NO_DISPLAY)
+      continue;
+
+    if (eglInitialize(attempt_dpy, NULL, NULL)) {
+
+      // Context binding is required to read GL_VENDOR strings in some drivers
+      // We create a temp config/context just to check the name
+      eglBindAPI(EGL_OPENGL_API);
+      EGLConfig config;
+      EGLint num_config;
+      EGLint attr[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE,
+                       EGL_OPENGL_BIT, EGL_NONE};
+      eglChooseConfig(attempt_dpy, attr, &config, 1, &num_config);
+      if (!eglChooseConfig(attempt_dpy, attr, &config, 1, &num_config) ||
+          num_config == 0) {
+        // Fallback: Try "Surfaceless" (common in Mesa for pure compute)
+        // Some drivers don't even support PBUFFER, but support 0 (Surfaceless)
+        EGLint surfaceless_attr[] = {EGL_SURFACE_TYPE, EGL_NONE,
+                                     EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
+                                     EGL_NONE};
+        eglChooseConfig(attempt_dpy, surfaceless_attr, &config, 1, &num_config);
+      }
+      if (num_config > 0) {
+
+        EGLContext temp_ctx = eglCreateContext(
+            attempt_dpy, config, EGL_NO_CONTEXT,
+            (EGLint[]){EGL_CONTEXT_MAJOR_VERSION, 3, EGL_NONE});
+        if (eglMakeCurrent(attempt_dpy, EGL_NO_SURFACE, EGL_NO_SURFACE,
+                           temp_ctx)) {
+
+          // --- CHECK VENDOR ---
+          const char *vendor = (const char *)glGetString(GL_VENDOR);
+          const char *renderer = (const char *)glGetString(GL_RENDERER);
+
+          // Case-insensitive check (simplified)
+          int match = 0;
+          // printf("%s - %s\n", vendor, renderer);
+          if (target_vendor && vendor && strstr(vendor, target_vendor))
+            match = 1;
+          if (target_vendor && renderer && strstr(renderer, target_vendor))
+            match = 1;
+          // Special case: Intel is sometimes "Mesa" or "Iris"
+          if (strcmp(target_vendor, "Intel") == 0 && renderer &&
+              strstr(renderer, "Intel"))
+            match = 1;
+
+          if (match) {
+            // printf("EGL: Match Found! Vendor: %s | Renderer: %s\n", vendor,
+            // renderer);
+
+            // 1. Destroy the temporary check-context
+            eglMakeCurrent(attempt_dpy, EGL_NO_SURFACE, EGL_NO_SURFACE,
+                           EGL_NO_CONTEXT);
+            eglDestroyContext(attempt_dpy, temp_ctx);
+
+            // 2. Create the REAL Context (OpenGL 4.3+)
+            EGLint real_context_attribs[] = {EGL_CONTEXT_MAJOR_VERSION, 4,
+                                             EGL_CONTEXT_MINOR_VERSION, 3,
+                                             EGL_NONE};
+
+            // Re-use the config we found earlier
+            EGLContext real_ctx = eglCreateContext(
+                attempt_dpy, config, EGL_NO_CONTEXT, real_context_attribs);
+
+            if (real_ctx == EGL_NO_CONTEXT) {
+              fprintf(stderr,
+                      "EGL: Failed to create 4.3 context on target device.\n");
+              return 0;
+            }
+
+            if (!eglMakeCurrent(attempt_dpy, EGL_NO_SURFACE, EGL_NO_SURFACE,
+                                real_ctx)) {
+              fprintf(stderr, "EGL: Failed to make real context current.\n");
+              return 0;
+            }
+
+            // 3. Set Global State
+            egl_display = attempt_dpy;
+            egl_context = real_ctx;
+            strncpy(current_gpu_vendor, target_vendor, 63);
+
+            // 4. CRITICAL: Re-load functions and Re-compile shaders for this
+            // new context
+            setup_opengl_resources();
+
+            return 1;
+          }
+        }
+        // Cleanup temp context if no match
+        eglMakeCurrent(attempt_dpy, EGL_NO_SURFACE, EGL_NO_SURFACE,
+                       EGL_NO_CONTEXT);
+        eglDestroyContext(attempt_dpy, temp_ctx);
+      }
+      eglTerminate(attempt_dpy);
+    }
+  }
+
+  fprintf(stderr, "EGL: Could not find a GPU matching '%s'\n", target_vendor);
+  return 0;
+}
+void render_opengl(uint16_t *buffer, int width, int start_row, int end_row,
+                   int max_iterations, double x_min, double y_min,
+                   double x_scale, double y_scale, RenderMode mode) {
+  pthread_mutex_lock(&gl_mutex);
+  const char *target = "Unknown";
+  if (mode == INTEL_GPU)
+    target = "Intel";
+  if (mode == NVIDIA_GPU)
+    target = "NVIDIA";
+
+  if (!init_opengl(target)) {
+    return; // Skip if hardware not found
+  }
+
+  int rows = end_row - start_row;
+  if (rows <= 0 || width <= 0) {
+    pthread_mutex_unlock(&gl_mutex);
+    return;
+  }
+
+  size_t required_size = width * rows * sizeof(uint32_t);
+
+  if (!eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE,
+                      egl_context)) {
+    pthread_mutex_unlock(&gl_mutex);
+    return;
+  }
+
+  if (required_size > gl_ssbo_size) {
+    glBindBuffer_ptr(GL_SHADER_STORAGE_BUFFER, gl_ssbo);
+    glBufferData_ptr(GL_SHADER_STORAGE_BUFFER, required_size, NULL,
+                     GL_DYNAMIC_COPY);
+    gl_ssbo_size = required_size;
+  }
+
+  glUseProgram_ptr(gl_program);
+  glUniform1i_ptr(glGetUniformLocation_ptr(gl_program, "width"), width);
+  glUniform1i_ptr(glGetUniformLocation_ptr(gl_program, "rows"), rows);
+  glUniform1i_ptr(glGetUniformLocation_ptr(gl_program, "max_iterations"),
+                  max_iterations);
+  glUniform1d_ptr(glGetUniformLocation_ptr(gl_program, "x_min"), x_min);
+  glUniform1d_ptr(glGetUniformLocation_ptr(gl_program, "y_min"), y_min);
+  glUniform1d_ptr(glGetUniformLocation_ptr(gl_program, "x_scale"), x_scale);
+  glUniform1d_ptr(glGetUniformLocation_ptr(gl_program, "y_scale"), y_scale);
+  glUniform1i_ptr(glGetUniformLocation_ptr(gl_program, "start_row"), start_row);
+
+  glBindBuffer_ptr(GL_SHADER_STORAGE_BUFFER, gl_ssbo);
+  glBindBufferBase_ptr(GL_SHADER_STORAGE_BUFFER, 0, gl_ssbo);
+
+  glDispatchCompute_ptr((width + 15) / 16, (rows + 15) / 16, 1);
+  glMemoryBarrier_ptr(GL_SHADER_STORAGE_BARRIER_BIT);
+
+  uint32_t *temp_buf = malloc(required_size);
+  if (temp_buf) {
+    glGetBufferSubData_ptr(GL_SHADER_STORAGE_BUFFER, 0, required_size,
+                           temp_buf);
+    for (int i = 0; i < width * rows; i++) {
+      buffer[start_row * width + i] = (uint16_t)temp_buf[i];
+    }
+    free(temp_buf);
+  }
+
+  eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+  pthread_mutex_unlock(&gl_mutex);
+}
+
 // ==========================================
 // THREAD WRAPPERS
 // ==========================================
@@ -266,9 +599,10 @@ double get_time() {
   return ts.tv_sec + ts.tv_nsec / 1e9;
 }
 
-void run_benchmark(const char *name, int threads, int use_avx, double width,
+void run_benchmark(const char *name, int threads, RenderMode mode, double width,
                    double height, uint16_t *buffer) {
   double start_time = get_time();
+  double end_time = 0;
 
   // Viewport math
   double aspect = (double)width / height;
@@ -283,6 +617,11 @@ void run_benchmark(const char *name, int threads, int use_avx, double width,
   ThreadData t_data[threads];
 
   int rows_per_thread = height / threads;
+  if (mode == INTEL_GPU || mode == NVIDIA_GPU) {
+    render_opengl(buffer, width, 0, height, MAX_ITER, x_min, y_min, x_scale,
+                  y_scale, mode);
+    goto bench_done;
+  }
 
   for (int i = 0; i < threads; i++) {
     t_data[i].buffer = buffer;
@@ -295,17 +634,25 @@ void run_benchmark(const char *name, int threads, int use_avx, double width,
     t_data[i].x_scale = x_scale;
     t_data[i].y_scale = y_scale;
 
-    if (use_avx)
-      pthread_create(&thread_ids[i], NULL, thread_avx, &t_data[i]);
-    else
+    switch (mode) {
+    case SCALAR:
       pthread_create(&thread_ids[i], NULL, thread_scalar, &t_data[i]);
+      break;
+    case AVX:
+      pthread_create(&thread_ids[i], NULL, thread_avx, &t_data[i]);
+      break;
+    default:
+      break;
+    }
   }
 
   for (int i = 0; i < threads; i++) {
     pthread_join(thread_ids[i], NULL);
   }
 
-  double end_time = get_time();
+bench_done:
+
+  end_time = get_time();
   printf("[%s] Time: %.4f seconds | FPS: %.2f\n", name, end_time - start_time,
          1.0 / (end_time - start_time));
 }

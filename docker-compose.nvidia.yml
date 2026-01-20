@@ -1,14 +1,25 @@
 services:
 # C Backend Service
   backend:
-    build: ./backend
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile.nvidia
+
     container_name: mandelbrot_backend
     restart: unless-stopped
     environment:
-      - MANDELBROT_THREADS=12
-      - MANDELBROT_SCALAR=0  # Set to 1 to force scalar mode
+      - MANDELBROT_NVIDIA_GPU=1     # Set to 1 to enable GPU acceleration
+      - NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility
+      - NVIDIA_VISIBLE_DEVICES=all
     expose:
       - "8080" # Only exposed to internal Docker network, not the host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
   # Nginx Frontend Service
   frontend:
     build: ./frontend

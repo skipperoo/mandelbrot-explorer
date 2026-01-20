@@ -1,14 +1,23 @@
 services:
 # C Backend Service
   backend:
-    build: ./backend
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: mandelbrot_backend
     restart: unless-stopped
+    user: 1000:109
     environment:
       - MANDELBROT_THREADS=12
       - MANDELBROT_SCALAR=0  # Set to 1 to force scalar mode
+      - MANDELBROT_INTEL_GPU=1     # Set to 1 to enable GPU acceleration
+      # - MESA_LOADER_DRIVER_OVERRIDE=iris
+      - LIBGL_ALWAYS_SOFTWARE=0 
     expose:
       - "8080" # Only exposed to internal Docker network, not the host
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+            
   # Nginx Frontend Service
   frontend:
     build: ./frontend

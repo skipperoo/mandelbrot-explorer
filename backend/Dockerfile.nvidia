@@ -20,8 +20,8 @@ COPY . .
 RUN make clean && make -j
 
 # --- Runtime Stage ---
-
-FROM debian:bookworm-slim
+FROM nvidia/opengl:1.0-glvnd-runtime-ubuntu22.04
+# FROM debian:bookworm-slim
 
 WORKDIR /app
 
@@ -32,7 +32,6 @@ RUN apt-get update && apt-get install -y \
     libglapi-mesa \
     libgbm1 \
     mesa-utils \
-    libgl1-mesa-dri \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from the builder stage
@@ -48,4 +47,3 @@ EXPOSE 8080
 # Run the server with Thread Count arguments (optional)
 # We use shell form to allow passing args via docker-compose if needed
 CMD ["./server"]
-
