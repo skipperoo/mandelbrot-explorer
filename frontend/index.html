@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AVX2 Mandelbrot Explorer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <div class="app-container">
+    <div class="viewport" id="viewport">
+      <canvas id="mandelbrotCanvas"></canvas>
+      <div id="loading" class="spinner hidden"></div>
+      <div class="overlay-stats">
+        <span id="coords">-2.00 : -1.50</span>
+        <span id="scale">Scale: 1.0</span>
+        <span id="fps">FPS: 0</span>
+      </div>
+    </div>
+
+    <aside class="sidebar">
+      <div class="header">
+        <h2>Mandelbrot <span class="accent">AVX</span></h2>
+        <div class="status-indicator disconnected" id="statusDot" title="Disconnected"></div>
+      </div>
+
+      <div class="control-group">
+        <label>Iterations</label>
+        <div class="slider-container">
+          <input type="range" id="iterSlider" min="100" max="10000" step="10" value="1000">
+          <span id="iterValue">1000</span>
+        </div>
+      </div>
+      <div class="control-group">
+        <label>Color Theme</label>
+        <select id="themeSelect">
+          <option value="ocean">Blue Ocean</option>
+          <option value="fire">Electric Fire</option>
+          <option value="matrix">Matrix Green</option>
+          <option value="rainbow">Psychedelic</option>
+          <option value="zebra">Zebra (Debug)</option>
+        </select>
+      </div>
+
+
+      <div class="control-group">
+        <label>Resolution</label>
+        <select id="resSelect">
+          <option value="1">Native (High)</option>
+          <option value="2">Half (Fast)</option>
+          <option value="4">Quarter (Very Fast)</option>
+        </select>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="control-group">
+        <label>Animation Path</label>
+        <div class="btn-grid">
+          <button id="btnKeyframe" class="btn secondary">Add Keyframe</button>
+          <button id="btnClearPath" class="btn destructive">Clear</button>
+        </div>
+        <div class="keyframe-list" id="keyframeList">
+          <div class="empty-state">No keyframes</div>
+        </div>
+        <button id="btnPlay" class="btn primary" disabled>▶ Play Animation</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="control-group">
+        <button id="btnExport" class="btn outline">Download PNG</button>
+      </div>
+    </aside>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+
+</html>
