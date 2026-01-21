@@ -334,6 +334,9 @@ static size_t gpu_temp_buffer_capacity = 0;
 void render_opengl_frame(uint16_t *buffer, int width, int start_row,
                          int end_row, int max_iterations, double x_min,
                          double y_min, double x_scale, double y_scale) {
+  struct timespec t0, t1, t2, t3, t4;
+  clock_gettime(CLOCK_MONOTONIC, &t0);
+
   int rows = end_row - start_row;
   size_t num_pixels = width * rows;
 
@@ -359,8 +362,8 @@ void render_opengl_frame(uint16_t *buffer, int width, int start_row,
     // AVX-512 prefers 64-byte alignment.
     gpu_temp_buffer = aligned_alloc(64, gpu_data_size_bytes);
     if (!gpu_temp_buffer) {
-        // Fallback if aligned_alloc fails (e.g. size not multiple)
-        gpu_temp_buffer = malloc(gpu_data_size_bytes);
+      // Fallback if aligned_alloc fails (e.g. size not multiple)
+      gpu_temp_buffer = malloc(gpu_data_size_bytes);
     }
     gpu_temp_buffer_capacity = gpu_data_size_bytes;
   }
@@ -390,64 +393,18 @@ void render_opengl_frame(uint16_t *buffer, int width, int start_row,
   // Barrier to ensure GPU is done
   glMemoryBarrier_ptr(GL_SHADER_STORAGE_BARRIER_BIT);
 
+  clock_gettime(CLOCK_MONOTONIC, &t1);
+
   // 6. Read back into TEMP 32-bit buffer
   glGetBufferSubData_ptr(GL_SHADER_STORAGE_BUFFER, 0, gpu_data_size_bytes,
                          gpu_temp_buffer);
+
+  clock_gettime(CLOCK_MONOTONIC, &t2);
 
   // 7. Downcast: Convert 32-bit GPU output to 16-bit App buffer
   // This loop is required because the shader outputs 'uint', but you need
   // 'uint16_t'
   size_t i = 0;
-
-#if defined(__AVX512F__)
-  // AVX-512: Process 16 pixels per loop
-  for (; i + 15 < num_pixels; i += 16) {
-      __m512i v_in = _mm512_loadu_si512((__m512i*)&gpu_temp_buffer[i]);
-      __m256i v_out = _mm512_cvtepi32_epi16(v_in); // Downcast 32->16 (saturate? No, truncate)
-      // Note: cvtepi32_epi16 truncates. Since values > 65535 are rare/clamped, this is okay
-      // BUT our scalar code clamps: (val > 65535) ? 65535.
-      // With standard Mandelbrot, iter is usually <= max_iter.
-      // If max_iter > 65535, we need saturation. _mm512_cvtepi32_epi16 is strictly truncate.
-      // For now, assuming max_iterations < 65535 or truncation is acceptable visual artifact.
-      _mm256_storeu_si256((__m256i*)&buffer[i], v_out);
-  }
-#elif defined(__AVX2__)
-  // AVX2: Process 16 pixels per loop (2x 256-bit loads)
-  for (; i + 15 < num_pixels; i += 16) {
-      __m256i v_in_lo = _mm256_loadu_si256((__m256i*)&gpu_temp_buffer[i]);
-      __m256i v_in_hi = _mm256_loadu_si256((__m256i*)&gpu_temp_buffer[i + 8]);
-
-      // Pack 32-bit integers to 16-bit integers using unsigned saturation
-      // _mm256_packus_epi32 packs [a0..a3 b0..b3] [c0..c3 d0..d3] -> [a'..b' c'..d']
-      // BUT it does it lane-wise (128-bit lanes).
-      // We need to shuffle to get correct order.
-      __m256i v_packed = _mm256_packus_epi32(v_in_lo, v_in_hi);
-      
-      // Permute to fix the 128-bit lane crossing issue of packus
-      // Current layout: [Lo_0-3, Hi_0-3, Lo_4-7, Hi_4-7]
-      // Desired layout: [Lo_0-7, Hi_0-7]
-      // Use _mm256_permute4x64_epi64 (AVX2) to reorder 64-bit blocks
-      // Indices: 0(00), 2(10), 1(01), 3(11) -> 0, 2, 1, 3? 
-      // Let's trace:
-      // v_in_lo: [A B | C D] (each letter is 4 ints / 128 bits total per side? No. 
-      // AVX2 regs are 256 bit. 
-      // v_in_lo: [Ints 0-3 | Ints 4-7]
-      // v_in_hi: [Ints 8-11| Ints 12-15]
-      // packus(lo, hi):
-      // Lane 0: packus(Lo_0-3, Hi_0-3) -> [Shorts 0-3, Shorts 8-11]
-      // Lane 1: packus(Lo_4-7, Hi_4-7) -> [Shorts 4-7, Shorts 12-15]
-      // Result: [0-3, 8-11, 4-7, 12-15]
-      // We want: [0-3, 4-7, 8-11, 12-15]
-      // So we swap the middle two 64-bit blocks.
-      // _mm256_permute4x64_epi64(v, _MM_SHUFFLE(3, 1, 2, 0)) -> [3, 1, 2, 0]
-      // Block 0 stays at 0. Block 2 goes to 1. Block 1 goes to 2. Block 3 stays at 3.
-      // Blocks are 64-bit (4 shorts).
-      
-      v_packed = _mm256_permute4x64_epi64(v_packed, _MM_SHUFFLE(3, 1, 2, 0));
-
-      _mm256_storeu_si256((__m256i*)&buffer[i], v_packed);
-  }
-#endif
 
   // Scalar Cleanup
   for (; i < num_pixels; i++) {
@@ -455,6 +412,18 @@ void render_opengl_frame(uint16_t *buffer, int width, int start_row,
     uint32_t val = gpu_temp_buffer[i];
     buffer[i] = (val > 65535) ? 65535 : (uint16_t)val;
   }
+  clock_gettime(CLOCK_MONOTONIC, &t3);
+
+  double t_dispatch =
+      (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1000000.0;
+  double t_readback =
+      (t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_nsec - t1.tv_nsec) / 1000000.0;
+  double t_downcast =
+      (t3.tv_sec - t2.tv_sec) * 1000.0 + (t3.tv_nsec - t2.tv_nsec) / 1000000.0;
+
+  printf(
+      "[GPU Detail] Dispatch: %.2fms | Readback: %.2fms | Downcast: %.2fms\n",
+      t_dispatch, t_readback, t_downcast);
 }
 
 void shutdown_opengl() {

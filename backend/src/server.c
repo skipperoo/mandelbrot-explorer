@@ -47,7 +47,7 @@ typedef struct {
 typedef struct {
   int client_fd;
   tpool_t *pool;
-  int mode;               // 0=SIMD, 1=scalar, 2=GPU
+  int mode;               // 0=SIMD, 1=scalar, >2=GPU
   int num_worker_threads; // Needed to calculate slice count
 } client_context_t;
 
@@ -387,10 +387,6 @@ int main(int argc, char *argv[]) {
     }
   }
   if (benchmark) {
-    // Benchmark logic remains (simplified for brevity if needed, but keeping it
-    // as requested logic) Since I am rewriting the file, I should keep the
-    // benchmark logic to avoid breaking it. The previous benchmark code used
-    // render_opengl directly. This is fine as render_opengl is still there.
     double base_width = 960.0;
     double base_height = 540.0;
     for (int scale = 1; scale <= 4; scale *= 2) {
