@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
     user: 1000:109
     environment:
-      - MANDELBROT_THREADS=12
+      - MANDELBROT_THREADS=0
       - MANDELBROT_SCALAR=0  # Set to 1 to force scalar mode
       - MANDELBROT_INTEL_GPU=1     # Set to 1 to enable GPU acceleration
       # - MESA_LOADER_DRIVER_OVERRIDE=iris

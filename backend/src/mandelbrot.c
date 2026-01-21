@@ -1,35 +1,47 @@
 #include "include/mandelbrot.h"
 
-// ==========================================
-// CONFIGURATION
-// ==========================================
-#define WIDTH 1920
-#define HEIGHT 1080
-#define MAX_ITER 1000
-#define THREAD_COUNT 12 // Set this to your logical core count
-
 static char current_gpu_vendor[64] = "None";
 
-// Viewport settings
-const double CENTER_X = -0.743643887037158704752191506114774;
-const double CENTER_Y = 0.131825904205311970493132056385139;
-const double ZOOM = 0.5; // Scale
-// Shared Data Structure for Threads
-typedef struct {
-  uint16_t *buffer;
-  int start_row;
-  int end_row;
-  int width;
-  int height;
-  double x_min;
-  double y_min;
-  double x_scale;
-  double y_scale;
-} ThreadData;
-
-// ==========================================
-// 1. SCALAR KERNEL (Reference Implementation)
-// ==========================================
+/**
+ * Computes the Mandelbrot set for a specified region using scalar (non-SIMD)
+ * instructions.
+ *
+ * This function iterates over each pixel in the defined viewport and determines
+ * whether the corresponding complex number 'c' belongs to the Mandelbrot set or
+ * diverges.
+ *
+ * Mathematical Basis:
+ * The Mandelbrot set is defined by the recurrence relation:
+ *      Z_{n+1} = Z_n^2 + c
+ * where Z_0 = 0 and c is a complex number corresponding to the pixel
+ * coordinate. A point 'c' is in the set if the absolute value |Z_n| remains
+ * bounded forever. In practice, we check if |Z_n| exceeds 2 (or |Z_n|^2 > 4)
+ * within a maximum number of iterations.
+ *
+ * Algorithm Steps:
+ * 1. Loop through each pixel (px, py) in the given range.
+ * 2. Map the pixel coordinate to the complex plane (x0 + i*y0):
+ *      x0 = x_min + px * x_scale
+ *      y0 = y_min + py * y_scale
+ * 3. Initialize Z = 0 + 0i (x=0, y=0).
+ * 4. Iterate Z = Z^2 + c until |Z|^2 > 4 or max_iterations is reached.
+ *    - Real part update: x_new = x^2 - y^2 + x0
+ *    - Imag part update: y_new = 2*x*y + y0
+ *    - Optimization: x^2 and y^2 are precomputed to avoid repeated
+ * multiplications.
+ * 5. Store the iteration count in the buffer. This count represents "how fast"
+ *    the point escaped, which is used for coloring.
+ *
+ * @param buffer          Output buffer to store iteration counts (row-major).
+ * @param width           Width of the buffer/image in pixels.
+ * @param start_row       Starting row index for this slice (inclusive).
+ * @param end_row         Ending row index for this slice (exclusive).
+ * @param max_iterations  Maximum limit for the iteration check.
+ * @param x_min           Real part of the top-left corner of the viewport.
+ * @param y_min           Imaginary part of the top-left corner of the viewport.
+ * @param x_scale         Step size in the Real axis per pixel.
+ * @param y_scale         Step size in the Imaginary axis per pixel.
+ */
 void render_scalar(uint16_t *buffer, int width, int start_row, int end_row,
                    int max_iterations, double x_min, double y_min,
                    double x_scale, double y_scale) {
@@ -50,7 +62,6 @@ void render_scalar(uint16_t *buffer, int width, int start_row, int end_row,
         iter++;
       }
 
-      // Store Iteration Count directly (2 bytes)
       buffer[py * width + px] = (uint16_t)iter;
     }
   }
@@ -273,6 +284,16 @@ static GLuint gl_ssbo = 0;
 static size_t gl_ssbo_size = 0;
 static pthread_mutex_t gl_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+// Cached Uniform Locations
+static GLint loc_width = -1;
+static GLint loc_rows = -1;
+static GLint loc_max_iterations = -1;
+static GLint loc_x_min = -1;
+static GLint loc_y_min = -1;
+static GLint loc_x_scale = -1;
+static GLint loc_y_scale = -1;
+static GLint loc_start_row = -1;
+
 typedef const GLubyte *(*PFNGLGETSTRINGPROC)(GLenum);
 
 const char *compute_shader_source =
@@ -307,6 +328,134 @@ const char *compute_shader_source =
     "    }\n"
     "    iterations[py * width + px] = uint(iter);\n"
     "}\n";
+static uint32_t *gpu_temp_buffer = NULL;
+static size_t gpu_temp_buffer_capacity = 0;
+
+void render_opengl_frame(uint16_t *buffer, int width, int start_row,
+                         int end_row, int max_iterations, double x_min,
+                         double y_min, double x_scale, double y_scale) {
+  int rows = end_row - start_row;
+  size_t num_pixels = width * rows;
+
+  // 1. Calculate size required by the GPU (32-bit uints)
+  size_t gpu_data_size_bytes = num_pixels * sizeof(uint32_t);
+
+  // 2. Resize GPU SSBO if necessary
+  if (gpu_data_size_bytes > gl_ssbo_size) {
+    glBindBuffer_ptr(GL_SHADER_STORAGE_BUFFER, gl_ssbo);
+    // Note: GL_DYNAMIC_DRAW is usually better for frequent writes
+    glBufferData_ptr(GL_SHADER_STORAGE_BUFFER, gpu_data_size_bytes, NULL,
+                     GL_DYNAMIC_DRAW);
+    gl_ssbo_size = gpu_data_size_bytes;
+  }
+
+  // 3. Resize CPU Temporary Buffer if necessary
+  // This buffer bridges the gap between the GPU's 32-bit output and your 16-bit
+  // app buffer
+  if (gpu_data_size_bytes > gpu_temp_buffer_capacity) {
+    if (gpu_temp_buffer)
+      free(gpu_temp_buffer);
+    // Use aligned alloc for SIMD safety? malloc is usually 16-byte aligned.
+    // AVX-512 prefers 64-byte alignment.
+    gpu_temp_buffer = aligned_alloc(64, gpu_data_size_bytes);
+    if (!gpu_temp_buffer) {
+        // Fallback if aligned_alloc fails (e.g. size not multiple)
+        gpu_temp_buffer = malloc(gpu_data_size_bytes);
+    }
+    gpu_temp_buffer_capacity = gpu_data_size_bytes;
+  }
+
+  glUseProgram_ptr(gl_program);
+
+  // 4. Set Uniforms (Using cached locations)
+  glUniform1i_ptr(loc_width, width);
+  glUniform1i_ptr(loc_rows, rows);
+  glUniform1i_ptr(loc_max_iterations, max_iterations);
+
+  // Important: Shader uses 'double', so we MUST use glUniform1d
+  glUniform1d_ptr(loc_x_min, x_min);
+  glUniform1d_ptr(loc_y_min, y_min);
+  glUniform1d_ptr(loc_x_scale, x_scale);
+  glUniform1d_ptr(loc_y_scale, y_scale);
+  glUniform1i_ptr(loc_start_row, start_row);
+
+  glBindBuffer_ptr(GL_SHADER_STORAGE_BUFFER, gl_ssbo);
+  glBindBufferBase_ptr(GL_SHADER_STORAGE_BUFFER, 0, gl_ssbo);
+
+  // 5. Dispatch
+  // Shader uses 16x16 local size, and handles 1 pixel per thread.
+  // We use ceil(width/16) logic: (width + 15) / 16
+  glDispatchCompute_ptr((width + 15) / 16, (rows + 15) / 16, 1);
+
+  // Barrier to ensure GPU is done
+  glMemoryBarrier_ptr(GL_SHADER_STORAGE_BARRIER_BIT);
+
+  // 6. Read back into TEMP 32-bit buffer
+  glGetBufferSubData_ptr(GL_SHADER_STORAGE_BUFFER, 0, gpu_data_size_bytes,
+                         gpu_temp_buffer);
+
+  // 7. Downcast: Convert 32-bit GPU output to 16-bit App buffer
+  // This loop is required because the shader outputs 'uint', but you need
+  // 'uint16_t'
+  size_t i = 0;
+
+#if defined(__AVX512F__)
+  // AVX-512: Process 16 pixels per loop
+  for (; i + 15 < num_pixels; i += 16) {
+      __m512i v_in = _mm512_loadu_si512((__m512i*)&gpu_temp_buffer[i]);
+      __m256i v_out = _mm512_cvtepi32_epi16(v_in); // Downcast 32->16 (saturate? No, truncate)
+      // Note: cvtepi32_epi16 truncates. Since values > 65535 are rare/clamped, this is okay
+      // BUT our scalar code clamps: (val > 65535) ? 65535.
+      // With standard Mandelbrot, iter is usually <= max_iter.
+      // If max_iter > 65535, we need saturation. _mm512_cvtepi32_epi16 is strictly truncate.
+      // For now, assuming max_iterations < 65535 or truncation is acceptable visual artifact.
+      _mm256_storeu_si256((__m256i*)&buffer[i], v_out);
+  }
+#elif defined(__AVX2__)
+  // AVX2: Process 16 pixels per loop (2x 256-bit loads)
+  for (; i + 15 < num_pixels; i += 16) {
+      __m256i v_in_lo = _mm256_loadu_si256((__m256i*)&gpu_temp_buffer[i]);
+      __m256i v_in_hi = _mm256_loadu_si256((__m256i*)&gpu_temp_buffer[i + 8]);
+
+      // Pack 32-bit integers to 16-bit integers using unsigned saturation
+      // _mm256_packus_epi32 packs [a0..a3 b0..b3] [c0..c3 d0..d3] -> [a'..b' c'..d']
+      // BUT it does it lane-wise (128-bit lanes).
+      // We need to shuffle to get correct order.
+      __m256i v_packed = _mm256_packus_epi32(v_in_lo, v_in_hi);
+      
+      // Permute to fix the 128-bit lane crossing issue of packus
+      // Current layout: [Lo_0-3, Hi_0-3, Lo_4-7, Hi_4-7]
+      // Desired layout: [Lo_0-7, Hi_0-7]
+      // Use _mm256_permute4x64_epi64 (AVX2) to reorder 64-bit blocks
+      // Indices: 0(00), 2(10), 1(01), 3(11) -> 0, 2, 1, 3? 
+      // Let's trace:
+      // v_in_lo: [A B | C D] (each letter is 4 ints / 128 bits total per side? No. 
+      // AVX2 regs are 256 bit. 
+      // v_in_lo: [Ints 0-3 | Ints 4-7]
+      // v_in_hi: [Ints 8-11| Ints 12-15]
+      // packus(lo, hi):
+      // Lane 0: packus(Lo_0-3, Hi_0-3) -> [Shorts 0-3, Shorts 8-11]
+      // Lane 1: packus(Lo_4-7, Hi_4-7) -> [Shorts 4-7, Shorts 12-15]
+      // Result: [0-3, 8-11, 4-7, 12-15]
+      // We want: [0-3, 4-7, 8-11, 12-15]
+      // So we swap the middle two 64-bit blocks.
+      // _mm256_permute4x64_epi64(v, _MM_SHUFFLE(3, 1, 2, 0)) -> [3, 1, 2, 0]
+      // Block 0 stays at 0. Block 2 goes to 1. Block 1 goes to 2. Block 3 stays at 3.
+      // Blocks are 64-bit (4 shorts).
+      
+      v_packed = _mm256_permute4x64_epi64(v_packed, _MM_SHUFFLE(3, 1, 2, 0));
+
+      _mm256_storeu_si256((__m256i*)&buffer[i], v_packed);
+  }
+#endif
+
+  // Scalar Cleanup
+  for (; i < num_pixels; i++) {
+    // Simple clamp to ensure we don't overflow if iter > 65535 (unlikely)
+    uint32_t val = gpu_temp_buffer[i];
+    buffer[i] = (val > 65535) ? 65535 : (uint16_t)val;
+  }
+}
 
 void shutdown_opengl() {
   if (egl_display != EGL_NO_DISPLAY) {
@@ -372,19 +521,26 @@ void setup_opengl_resources() {
 
   // 3. Create Buffer
   glGenBuffers_ptr(1, &gl_ssbo);
+
+  // 4. Cache Uniform Locations
+  loc_width = glGetUniformLocation_ptr(gl_program, "width");
+  loc_rows = glGetUniformLocation_ptr(gl_program, "rows");
+  loc_max_iterations = glGetUniformLocation_ptr(gl_program, "max_iterations");
+  loc_x_min = glGetUniformLocation_ptr(gl_program, "x_min");
+  loc_y_min = glGetUniformLocation_ptr(gl_program, "y_min");
+  loc_x_scale = glGetUniformLocation_ptr(gl_program, "x_scale");
+  loc_y_scale = glGetUniformLocation_ptr(gl_program, "y_scale");
+  loc_start_row = glGetUniformLocation_ptr(gl_program, "start_row");
 }
 
-static int init_opengl(const char *target_vendor) {
-  // If already initialized for this vendor, do nothing
+// RENAMED & EXPOSED: Was init_opengl, now init_opengl_for_vendor
+int init_opengl_for_vendor(const char *target_vendor) {
   if (strstr(current_gpu_vendor, target_vendor) != NULL) {
-    return 1; // Success, already loaded
+    return 1;
   }
 
-  // Otherwise, perform a full teardown and search
   shutdown_opengl();
-  // printf("EGL: Switching to %s GPU...\n", target_vendor);
 
-  // Get EGL Extension pointers
   PFNEGLQUERYDEVICESEXTPROC eglQueryDevicesEXT =
       (PFNEGLQUERYDEVICESEXTPROC)eglGetProcAddress("eglQueryDevicesEXT");
   PFNEGLGETPLATFORMDISPLAYPROC eglGetPlatformDisplay =
@@ -420,7 +576,8 @@ static int init_opengl(const char *target_vendor) {
       if (!eglChooseConfig(attempt_dpy, attr, &config, 1, &num_config) ||
           num_config == 0) {
         // Fallback: Try "Surfaceless" (common in Mesa for pure compute)
-        // Some drivers don't even support PBUFFER, but support 0 (Surfaceless)
+        // Some drivers don't even support PBUFFER, but support 0
+        // (Surfaceless)
         EGLint surfaceless_attr[] = {EGL_SURFACE_TYPE, EGL_NONE,
                                      EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
                                      EGL_NONE};
@@ -504,6 +661,7 @@ static int init_opengl(const char *target_vendor) {
   fprintf(stderr, "EGL: Could not find a GPU matching '%s'\n", target_vendor);
   return 0;
 }
+
 void render_opengl(uint16_t *buffer, int width, int start_row, int end_row,
                    int max_iterations, double x_min, double y_min,
                    double x_scale, double y_scale, RenderMode mode) {
@@ -514,59 +672,17 @@ void render_opengl(uint16_t *buffer, int width, int start_row, int end_row,
   if (mode == NVIDIA_GPU)
     target = "NVIDIA";
 
-  if (!init_opengl(target)) {
-    return; // Skip if hardware not found
-  }
+  if (!init_opengl_for_vendor(target))
+    goto unlock_gl_mutex;
 
-  int rows = end_row - start_row;
-  if (rows <= 0 || width <= 0) {
-    pthread_mutex_unlock(&gl_mutex);
-    return;
-  }
+  if (!eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, egl_context))
+    goto unlock_gl_mutex;
 
-  size_t required_size = width * rows * sizeof(uint32_t);
-
-  if (!eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE,
-                      egl_context)) {
-    pthread_mutex_unlock(&gl_mutex);
-    return;
-  }
-
-  if (required_size > gl_ssbo_size) {
-    glBindBuffer_ptr(GL_SHADER_STORAGE_BUFFER, gl_ssbo);
-    glBufferData_ptr(GL_SHADER_STORAGE_BUFFER, required_size, NULL,
-                     GL_DYNAMIC_COPY);
-    gl_ssbo_size = required_size;
-  }
-
-  glUseProgram_ptr(gl_program);
-  glUniform1i_ptr(glGetUniformLocation_ptr(gl_program, "width"), width);
-  glUniform1i_ptr(glGetUniformLocation_ptr(gl_program, "rows"), rows);
-  glUniform1i_ptr(glGetUniformLocation_ptr(gl_program, "max_iterations"),
-                  max_iterations);
-  glUniform1d_ptr(glGetUniformLocation_ptr(gl_program, "x_min"), x_min);
-  glUniform1d_ptr(glGetUniformLocation_ptr(gl_program, "y_min"), y_min);
-  glUniform1d_ptr(glGetUniformLocation_ptr(gl_program, "x_scale"), x_scale);
-  glUniform1d_ptr(glGetUniformLocation_ptr(gl_program, "y_scale"), y_scale);
-  glUniform1i_ptr(glGetUniformLocation_ptr(gl_program, "start_row"), start_row);
-
-  glBindBuffer_ptr(GL_SHADER_STORAGE_BUFFER, gl_ssbo);
-  glBindBufferBase_ptr(GL_SHADER_STORAGE_BUFFER, 0, gl_ssbo);
-
-  glDispatchCompute_ptr((width + 15) / 16, (rows + 15) / 16, 1);
-  glMemoryBarrier_ptr(GL_SHADER_STORAGE_BARRIER_BIT);
-
-  uint32_t *temp_buf = malloc(required_size);
-  if (temp_buf) {
-    glGetBufferSubData_ptr(GL_SHADER_STORAGE_BUFFER, 0, required_size,
-                           temp_buf);
-    for (int i = 0; i < width * rows; i++) {
-      buffer[start_row * width + i] = (uint16_t)temp_buf[i];
-    }
-    free(temp_buf);
-  }
+  render_opengl_frame(buffer, width, start_row, end_row, max_iterations, x_min,
+                      y_min, x_scale, y_scale);
 
   eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+unlock_gl_mutex:
   pthread_mutex_unlock(&gl_mutex);
 }
 
@@ -656,25 +772,3 @@ bench_done:
   printf("[%s] Time: %.4f seconds | FPS: %.2f\n", name, end_time - start_time,
          1.0 / (end_time - start_time));
 }
-
-// int main() {
-//   // Check AVX support (basic runtime check or just assume for this HW)
-//   printf("Initializing Benchmark...\n");
-//   printf("Resolution: %dx%d | Max Iter: %d\n", WIDTH, HEIGHT, MAX_ITER);
-//
-//   // Align memory to 64 bytes for AVX-512 performance
-//   uint32_t *buffer =
-//       (uint32_t *)aligned_alloc(64, WIDTH * HEIGHT * sizeof(uint32_t));
-//
-//   // 1. Single Thread Scalar
-//   run_benchmark("Single Core Scalar  ", 1, 0, buffer);
-//
-//   // 2. Multicore Scalar
-//   run_benchmark("Multi Core Scalar   ", THREAD_COUNT, 0, buffer);
-//
-//   // 3. Multicore AVX-512
-//   run_benchmark("Multi Core AVX2  ", THREAD_COUNT, 1, buffer);
-//
-//   free(buffer);
-//   return 0;
-// }

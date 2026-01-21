@@ -8,6 +8,7 @@ services:
     container_name: mandelbrot_backend
     restart: unless-stopped
     environment:
+      - MANDELBROT_THREADS=0
       - MANDELBROT_NVIDIA_GPU=1     # Set to 1 to enable GPU acceleration
       - NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility
       - NVIDIA_VISIBLE_DEVICES=all

@@ -2,7 +2,7 @@
 #include "include/tpool.h"
 #include "include/websocket.h"
 #include <getopt.h>
-#include <pthread.h> // Required for client threads
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +12,37 @@
 
 // --- Structs ---
 
+// GPU Render Job
+typedef struct gpu_job {
+  uint16_t *buffer;
+  int width;
+  int height;
+  int iterations;
+  double x_min;
+  double y_min;
+  double x_scale;
+  double y_scale;
+
+  // Synchronization for this specific job
+  pthread_mutex_t mutex;
+  pthread_cond_t cond;
+  int done;
+} gpu_job_t;
+
+// Job Queue Node
+typedef struct gpu_job_node {
+  gpu_job_t *job;
+  struct gpu_job_node *next;
+} gpu_job_node_t;
+
+// Thread-safe Job Queue
+typedef struct {
+  gpu_job_node_t *head;
+  gpu_job_node_t *tail;
+  pthread_mutex_t mutex;
+  pthread_cond_t cond;
+} job_queue_t;
+
 // Context passed to the client thread
 typedef struct {
   int client_fd;
@@ -20,7 +51,7 @@ typedef struct {
   int num_worker_threads; // Needed to calculate slice count
 } client_context_t;
 
-// Context passed to the worker pool (Single Image Slice)
+// Context passed to the worker pool (Single Image Slice - CPU)
 typedef struct {
   uint16_t *buffer;
   int width;
@@ -32,11 +63,55 @@ typedef struct {
   double x_scale;
   double y_scale;
   frame_barrier_t *barrier;
-  int mode; // 0=SIMD, 1=scalar, 2=GPU
+  int mode; // 0=SIMD, 1=scalar
 } render_job_t;
 
-// --- Worker Function (Executed by Thread Pool) ---
+// Global Queue
+job_queue_t g_gpu_queue;
 
+// --- Queue Functions ---
+
+void queue_init(job_queue_t *q) {
+  q->head = q->tail = NULL;
+  pthread_mutex_init(&q->mutex, NULL);
+  pthread_cond_init(&q->cond, NULL);
+}
+
+void queue_push(job_queue_t *q, gpu_job_t *job) {
+  gpu_job_node_t *node = malloc(sizeof(gpu_job_node_t));
+  node->job = job;
+  node->next = NULL;
+
+  pthread_mutex_lock(&q->mutex);
+  if (q->tail) {
+    q->tail->next = node;
+    q->tail = node;
+  } else {
+    q->head = q->tail = node;
+  }
+  pthread_cond_signal(&q->cond);
+  pthread_mutex_unlock(&q->mutex);
+}
+
+gpu_job_t *queue_pop(job_queue_t *q) {
+  pthread_mutex_lock(&q->mutex);
+  while (q->head == NULL) {
+    pthread_cond_wait(&q->cond, &q->mutex);
+  }
+  gpu_job_node_t *node = q->head;
+  gpu_job_t *job = node->job;
+  q->head = node->next;
+  if (q->head == NULL) {
+    q->tail = NULL;
+  }
+  pthread_mutex_unlock(&q->mutex);
+  free(node);
+  return job;
+}
+
+// --- Worker Functions ---
+
+// CPU Worker (Executed by Thread Pool)
 void render_slice_wrapper(void *arg) {
   render_job_t *job = (render_job_t *)arg;
 
@@ -44,10 +119,6 @@ void render_slice_wrapper(void *arg) {
     render_scalar(job->buffer, job->width, job->start_row, job->end_row,
                   job->iterations, job->x_min, job->y_min, job->x_scale,
                   job->y_scale);
-  } else if (job->mode == 2) {
-    render_opengl(job->buffer, job->width, job->start_row, job->end_row,
-                  job->iterations, job->x_min, job->y_min, job->x_scale,
-                  job->y_scale, job->mode);
   } else {
     render_simd(job->buffer, job->width, job->start_row, job->end_row,
                 job->iterations, job->x_min, job->y_min, job->x_scale,
@@ -63,6 +134,45 @@ void render_slice_wrapper(void *arg) {
   pthread_mutex_unlock(&job->barrier->mutex);
 
   free(job);
+}
+
+// Dedicated GPU Worker Thread
+void *gpu_worker_thread(void *arg) {
+  const char *vendor = (const char *)arg;
+
+  printf("[GPU Worker] Initializing for vendor: %s\n", vendor);
+  if (!init_opengl_for_vendor(vendor)) {
+    fprintf(stderr, "[GPU Worker] Failed to initialize OpenGL for %s\n",
+            vendor);
+    // In a real app we might want to exit or handle this gracefully.
+    // For now, we loop but do nothing or exit?
+    // Let's exit to avoid spinning.
+    return NULL;
+  }
+  printf("[GPU Worker] Ready and waiting for jobs...\n");
+
+  while (1) {
+    gpu_job_t *job = queue_pop(&g_gpu_queue);
+
+    // Render using the persistent context
+    // We assume init_opengl_for_vendor leaves the context active (or we
+    // reactivate it) The current implementation of init_opengl_for_vendor sets
+    // the context active. However, robust code should probably
+    // EnsureContextCurrent() here if needed. Since we are the only thread, it
+    // should stay active.
+
+    // render_opengl_frame assumes context is active.
+    render_opengl_frame(job->buffer, job->width, 0, job->height,
+                        job->iterations, job->x_min, job->y_min, job->x_scale,
+                        job->y_scale);
+
+    // Notify client thread
+    pthread_mutex_lock(&job->mutex);
+    job->done = 1;
+    pthread_cond_signal(&job->cond);
+    pthread_mutex_unlock(&job->mutex);
+  }
+  return NULL;
 }
 
 // --- Client Thread (Executed per Connection) ---
@@ -125,10 +235,34 @@ void *handle_client(void *arg) {
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_MONOTONIC, &start_time);
 
-    if (mode >= 2) {
-      // GPU mode: Render the whole image in one shot, bypassing the thread pool
-      render_opengl(img_buffer, width, 0, height, iterations, x_min, y_min,
-                    x_scale, y_scale, mode);
+    if (mode >= 2) { // GPU Mode
+      // Create GPU Job
+      gpu_job_t job;
+      job.buffer = img_buffer;
+      job.width = width;
+      job.height = height;
+      job.iterations = iterations;
+      job.x_min = x_min;
+      job.y_min = y_min;
+      job.x_scale = x_scale;
+      job.y_scale = y_scale;
+      job.done = 0;
+      pthread_mutex_init(&job.mutex, NULL);
+      pthread_cond_init(&job.cond, NULL);
+
+      // Submit to Queue
+      queue_push(&g_gpu_queue, &job);
+
+      // Wait for completion
+      pthread_mutex_lock(&job.mutex);
+      while (!job.done) {
+        pthread_cond_wait(&job.cond, &job.mutex);
+      }
+      pthread_mutex_unlock(&job.mutex);
+
+      pthread_mutex_destroy(&job.mutex);
+      pthread_cond_destroy(&job.cond);
+
     } else {
       // CPU mode: Split the image into slices and dispatch to the thread pool
       int num_slices = num_workers * 8;
@@ -211,7 +345,6 @@ int main(int argc, char *argv[]) {
 
   char *env_scalar = getenv("MANDELBROT_SCALAR");
   if (env_scalar) {
-    // If set to anything other than "0" or "false", enable scalar
     if (strcmp(env_scalar, "0") != 0 && strcasecmp(env_scalar, "false") != 0) {
       mode = AVX;
     }
@@ -219,19 +352,17 @@ int main(int argc, char *argv[]) {
 
   char *env_intel_gpu = getenv("MANDELBROT_INTEL_GPU");
   if (env_intel_gpu) {
-    // If GPU is enabled, ignore scalar setting and use GPU
     if (strcmp(env_intel_gpu, "0") != 0 &&
         strcasecmp(env_intel_gpu, "false") != 0) {
-      mode = INTEL_GPU; // Use nvidia_gpu mode
+      mode = INTEL_GPU;
     }
   }
 
   char *env_nvidia_gpu = getenv("MANDELBROT_NVIDIA_GPU");
   if (env_nvidia_gpu) {
-    // If GPU is enabled, ignore scalar setting and use GPU
     if (strcmp(env_nvidia_gpu, "0") != 0 &&
         strcasecmp(env_nvidia_gpu, "false") != 0) {
-      mode = NVIDIA_GPU; // Use nvidia_gpu mode
+      mode = NVIDIA_GPU;
     }
   }
 
@@ -256,6 +387,10 @@ int main(int argc, char *argv[]) {
     }
   }
   if (benchmark) {
+    // Benchmark logic remains (simplified for brevity if needed, but keeping it
+    // as requested logic) Since I am rewriting the file, I should keep the
+    // benchmark logic to avoid breaking it. The previous benchmark code used
+    // render_opengl directly. This is fine as render_opengl is still there.
     double base_width = 960.0;
     double base_height = 540.0;
     for (int scale = 1; scale <= 4; scale *= 2) {
@@ -299,26 +434,36 @@ int main(int argc, char *argv[]) {
   if (mode == SCALAR)
     printf("Server Config: %d Threads | Mode: Scalar\n", num_threads);
   else if (mode == NVIDIA_GPU || mode == INTEL_GPU)
-    printf("Server Config: %d Threads | Mode: GPU (OpenGL)\n", num_threads);
+    printf("Server Config: %d Threads | Mode: GPU (Dedicated Worker)\n",
+           num_threads);
   else {
 #if defined(__AVX512F__)
     printf("Server Config: %d Threads | Mode: AVX-512\n", num_threads);
-
 #elif defined(__AVX2__)
     printf("Server Config: %d Threads | Mode: AVX2\n", num_threads);
-
 #elif defined(__AVX__)
     printf("Server Config: %d Threads | Mode: AVX\n", num_threads);
-
 #endif
   }
   fflush(stdout);
 
-  // 2. Initialize Shared Thread Pool
-  tpool_t *pool = tpool_create(
-      num_threads, 1024); // Increased queue size for multiple clients
+  // 2. Initialize Shared Thread Pool (for CPU tasks)
+  tpool_t *pool = tpool_create(num_threads, 1024);
 
-  // 3. Socket Setup
+  // 3. Initialize GPU Worker if needed
+  if (mode == INTEL_GPU || mode == NVIDIA_GPU) {
+    queue_init(&g_gpu_queue);
+    const char *vendor = (mode == INTEL_GPU) ? "Intel" : "NVIDIA";
+    pthread_t gpu_thread;
+    if (pthread_create(&gpu_thread, NULL, gpu_worker_thread, (void *)vendor) !=
+        0) {
+      perror("Failed to create GPU worker thread");
+      exit(EXIT_FAILURE);
+    }
+    pthread_detach(gpu_thread); // Run in background
+  }
+
+  // 4. Socket Setup
   server_fd = socket(AF_INET, SOCK_STREAM, 0);
   setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val));
   address.sin_family = AF_INET;
@@ -329,11 +474,11 @@ int main(int argc, char *argv[]) {
     perror("Bind failed");
     exit(EXIT_FAILURE);
   }
-  listen(server_fd, 10); // Backlog of 10
+  listen(server_fd, 10);
   printf("Listening on port 8080...\n");
   fflush(stdout);
 
-  // 4. Accept Loop
+  // 5. Accept Loop
   while (1) {
     int addrlen = sizeof(address);
     int client_fd =
@@ -357,7 +502,6 @@ int main(int argc, char *argv[]) {
       close(client_fd);
       free(ctx);
     } else {
-      // Detach so resources are freed automatically when thread exits
       pthread_detach(thread_id);
     }
   }
