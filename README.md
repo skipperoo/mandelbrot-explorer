@@ -1,79 +1,51 @@
-# MANDELBROT EXPLORER
+# Mandelbrot Explorer
 
-(c) 2026 - Leonardo Scoppitto
+A zero-dependency, hardware-accelerated Mandelbrot set renderer. Built with raw C11, optimized Assembly, and Vanilla JS.
 
-[ WHAT IS THIS? ]
+## Tech Stack
+*   **Backend:** C11, POSIX Threads, AVX-512, OpenGL Compute Shaders
+*   **Frontend:** Vanilla JS, HTML5 Canvas
+*   **Networking:** Raw TCP Sockets, Custom RFC-6455 WebSocket Implementation
 
----
+## Requirements
+*   Linux Environment
+*   Docker & Docker Compose
+*   **Optional:** Intel CPU (AVX2/512) or NVIDIA GPU
 
-A zero-dependency, hardware-accelerated Mandelbrot set renderer.
-No frameworks. No bloat. Just raw C11 and optimized Assembly.
+## Usage
 
-- BACKEND....: C11, POSIX Threads, AVX-512, OpenGL Compute Shaders
-- FRONTEND...: Vanilla JS, HTML5 Canvas
-- NETWORKING.: Raw TCP Sockets, Custom RFC-6455 WebSocket Implementation
+Select the appropriate hardware profile to build and run:
 
-[ SYSTEM REQUIREMENTS ]
-
----
-
-- Linux Environment
-- Docker & Docker Compose
-- Optional: Intel CPU (AVX2/512) or NVIDIA GPU for hardware acceleration
-
-[ COMPILATION & EXECUTION ]
-
----
-
-Select your hardware profile and run:
-
-1. SCALAR MODE (Compatible with everything)
-
+**Scalar Mode (Universal)**
 ```bash
 docker-compose -f docker-compose.scalar.yml up --build
 ```
 
-1. INTEL SIMD MODE (Requires AVX support)
-
+**Intel SIMD Mode (Requires AVX)**
 ```bash
 docker-compose -f docker-compose.intel.yml up --build
 ```
 
-1. INTEL GPU MODE (Check the device passthrough)
-
-```bash
-docker-compose -f docker-compose.intel.yml up --build
-```
-
-1. NVIDIA GPU MODE (Requires Nvidia Container Toolkit)
-
+**NVIDIA GPU Mode (Requires NVIDIA Container Toolkit)**
 ```bash
 docker-compose -f docker-compose.nvidia.yml up --build
 ```
 
-[ ACCESS ]
+Access the application at **[http://localhost:8080](http://localhost:8080)**.
+
+## Controls
+
+| Action | Input |
+|--------|-------|
+| **Pan** | Left Mouse Drag |
+| **Zoom** | Scroll Wheel |
+| **Reset** | Double Click |
+| **Settings** | UI Panels (Resolution, Theme, Animation) |
+
+## Documentation
+
+*   [specs.md](specs.md) - Technical specifications and protocol definitions.
+*   [docs.md](docs.md) - Architecture overview and implementation details.
 
 ---
-
-Point your browser to: <http://localhost:8080>
-
-[ CONTROLS ]
-
----
-
-- LEFT MOUSE ... Pan view
-- SCROLL ....... Zoom In/Out
-- DOUBLE CLICK . Reset View
-- UI PANELS .... Change Resolution, Theme, or Record Animations
-
-[ ARCHITECTURE NOTES ]
-
----
-
-See [specs.md] and [docs.md] for more information.
-
-- SERVER runs on port 8080.
-- WEBSERVER serves static files from `/var/www`.
-- COMPUTE ENGINE supports dynamic precision switching (FP32/FP64).
-
-[ EOF ]
+(c) 2026 - Leonardo Scoppitto
