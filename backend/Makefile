@@ -1,7 +1,5 @@
 # Compiler and Flags
 CC = gcc
-# -mavx2: Enable AVX2 instructions
-# -mfma: Enable Fused Multiply-Add (crucial for Mandelbrot speed)
 # -O3: Max optimization
 # -pthread: Enable threading support
 # -I src/include: Look for headers in the include folder
@@ -16,6 +14,7 @@ BIN_DIR = bin
 # --- Server Target Configuration ---
 # Source files required for the main server
 SERVER_SRCS = $(SRC_DIR)/server.c \
+              $(SRC_DIR)/queue.c \
               $(SRC_DIR)/mandelbrot.c \
               $(SRC_DIR)/tpool.c \
               $(SRC_DIR)/websocket.c \
@@ -32,7 +31,7 @@ SERVER_BIN = $(BIN_DIR)/server
 # Assuming mandel_bench is a source file (src/mandel_bench.c)
 BENCH_SRCS = $(SRC_DIR)/mandel_bench.c \
              $(SRC_DIR)/mandelbrot.c \
-             $(SRC_DIR)/tpool.c 
+             $(SRC_DIR)/tpool.c
 
 BENCH_OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(BENCH_SRCS))
 BENCH_BIN = $(BIN_DIR)/mandel_bench

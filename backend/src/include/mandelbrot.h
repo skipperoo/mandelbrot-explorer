@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-
+#include "common.h"
 // ==========================================
 // BENCHMARK CONFIGURATION
 // ==========================================
@@ -36,7 +36,6 @@
 #define EGL_PLATFORM_SURFACELESS_MESA 0x31DD
 #endif
 
-typedef enum { SCALAR, AVX, INTEL_GPU, NVIDIA_GPU } RenderMode;
 
 typedef struct {
   uint16_t *buffer;
@@ -59,12 +58,10 @@ void render_scalar(uint16_t *buffer, int width, int start_row, int end_row,
 void run_benchmark(const char *name, int threads, RenderMode mode, double width,
                    double height, uint16_t *buffer);
 
-// Original wrapper (retains backward compatibility / ease of use)
 void render_opengl(uint16_t *buffer, int width, int start_row, int end_row,
                    int max_iterations, double x_min, double y_min,
                    double x_scale, double y_scale, RenderMode mode);
 
-// Exposed for dedicated worker thread
 int init_opengl_for_vendor(const char *target_vendor);
 void render_opengl_frame(uint16_t *buffer, int width, int start_row,
                          int end_row, int max_iterations, double x_min,

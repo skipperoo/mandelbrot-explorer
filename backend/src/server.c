@@ -1,9 +1,11 @@
 #include "include/mandelbrot.h"
+#include "include/queue.h"
 #include "include/tpool.h"
 #include "include/webserver.h"
 #include "include/websocket.h"
 #include <getopt.h>
 #include <pthread.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,107 +23,17 @@
   } while (0)
 #endif
 
-// --- Structs ---
-
-// GPU Render Job
-typedef struct gpu_job {
-  uint16_t *buffer;
-  int width;
-  int height;
-  int iterations;
-  double x_min;
-  double y_min;
-  double x_scale;
-  double y_scale;
-
-  // Synchronization for this specific job
-  pthread_mutex_t mutex;
-  pthread_cond_t cond;
-  int done;
-} gpu_job_t;
-
-// Job Queue Node
-typedef struct gpu_job_node {
-  gpu_job_t *job;
-  struct gpu_job_node *next;
-} gpu_job_node_t;
-
-// Thread-safe Job Queue
-typedef struct {
-  gpu_job_node_t *head;
-  gpu_job_node_t *tail;
-  pthread_mutex_t mutex;
-  pthread_cond_t cond;
-} job_queue_t;
-
 // Context passed to the client thread
 typedef struct {
   int client_fd;
   tpool_t *pool;
-  int mode;               // 0=SIMD, 1=scalar, >2=GPU
+  RenderMode mode;
   int num_worker_threads; // Needed to calculate slice count
 } client_context_t;
-
-// Context passed to the worker pool (Single Image Slice - CPU)
-typedef struct {
-  uint16_t *buffer;
-  int width;
-  int start_row;
-  int end_row;
-  int iterations;
-  double x_min;
-  double y_min;
-  double x_scale;
-  double y_scale;
-  frame_barrier_t *barrier;
-  int mode; // 0=SIMD, 1=scalar
-} render_job_t;
 
 // Global Queue
 job_queue_t g_gpu_queue;
 webserver_t g_webserver;
-
-// --- Queue Functions ---
-
-void queue_init(job_queue_t *q) {
-  q->head = q->tail = NULL;
-  pthread_mutex_init(&q->mutex, NULL);
-  pthread_cond_init(&q->cond, NULL);
-}
-
-void queue_push(job_queue_t *q, gpu_job_t *job) {
-  gpu_job_node_t *node = malloc(sizeof(gpu_job_node_t));
-  node->job = job;
-  node->next = NULL;
-
-  pthread_mutex_lock(&q->mutex);
-  if (q->tail) {
-    q->tail->next = node;
-    q->tail = node;
-  } else {
-    q->head = q->tail = node;
-  }
-  pthread_cond_signal(&q->cond);
-  pthread_mutex_unlock(&q->mutex);
-}
-
-gpu_job_t *queue_pop(job_queue_t *q) {
-  pthread_mutex_lock(&q->mutex);
-  while (q->head == NULL) {
-    pthread_cond_wait(&q->cond, &q->mutex);
-  }
-  gpu_job_node_t *node = q->head;
-  gpu_job_t *job = node->job;
-  q->head = node->next;
-  if (q->head == NULL) {
-    q->tail = NULL;
-  }
-  pthread_mutex_unlock(&q->mutex);
-  free(node);
-  return job;
-}
-
-// --- Worker Functions ---
 
 // CPU Worker (Executed by Thread Pool)
 void render_slice_wrapper(void *arg) {
@@ -187,8 +99,6 @@ void *gpu_worker_thread(void *arg) {
   return NULL;
 }
 
-// --- Client Thread (Executed per Connection) ---
-
 void *handle_client(void *arg) {
   // 1. Unpack Arguments
   client_context_t *ctx = (client_context_t *)arg;
@@ -196,7 +106,7 @@ void *handle_client(void *arg) {
   tpool_t *pool = ctx->pool;
   int mode = ctx->mode;
   int num_workers = ctx->num_worker_threads;
-  free(ctx); // Free the struct allocated in main
+  free(ctx);
 
   char buffer[4097] = {0};
   uint16_t *img_buffer = NULL;
@@ -251,7 +161,7 @@ void *handle_client(void *arg) {
     struct timespec start_time, end_time;
     clock_gettime(CLOCK_MONOTONIC, &start_time);
 
-    if (mode >= 2) { // GPU Mode
+    if (mode == INTEL_GPU || mode == NVIDIA_GPU) {
       // Create GPU Job
       gpu_job_t job;
       job.buffer = img_buffer;
@@ -281,12 +191,14 @@ void *handle_client(void *arg) {
 
     } else {
       // CPU mode: Split the image into slices and dispatch to the thread pool
-      int num_slices = num_workers * 8;
+      int num_slices = num_workers * 16;
       frame_barrier_t barrier;
       barrier_init(&barrier, num_slices);
 
       int rows_per_slice = height / num_slices;
 
+      // Cyclic allocation
+      // To better distribuete the work and avoid hotspots
       for (int i = 0; i < num_slices; i++) {
         int start = i * rows_per_slice;
         int end = (i == num_slices - 1) ? height : (i + 1) * rows_per_slice;
@@ -319,7 +231,6 @@ void *handle_client(void *arg) {
     DEBUG("[FD %d] Rendered in %.2f ms\n", client_fd, time_taken);
 
     clock_gettime(CLOCK_MONOTONIC, &start_time);
-    // E. Send Result
     send_binary_frame(client_fd, (uint8_t *)img_buffer,
                       width * height * sizeof(uint16_t));
 
@@ -344,8 +255,6 @@ int main(int argc, char *argv[]) {
   struct sockaddr_in address;
   int opt_val = 1;
   int benchmark = 0;
-
-  // 1. Configuration: Defaults -> Env Vars -> Command Line args
 
   // A. Defaults
   int num_threads = get_nprocs();
@@ -446,8 +355,7 @@ int main(int argc, char *argv[]) {
   if (mode == SCALAR)
     printf("Server Config: %d Threads | Mode: Scalar\n", num_threads);
   else if (mode == NVIDIA_GPU || mode == INTEL_GPU)
-    printf("Server Config: %d Threads | Mode: GPU (Dedicated Worker)\n",
-           num_threads);
+    printf("Server Config: %d Threads | Mode: GPU\n", num_threads);
   else {
 #if defined(__AVX512F__)
     printf("Server Config: %d Threads | Mode: AVX-512\n", num_threads);
@@ -521,6 +429,8 @@ int main(int argc, char *argv[]) {
       pthread_detach(thread_id);
     }
   }
+
+  tpool_shutdown(pool);
 
   return 0;
 }

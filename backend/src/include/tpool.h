@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// Task Definition
 typedef struct {
   void (*function)(void *);
   void *argument;
@@ -34,6 +33,7 @@ typedef struct {
 
 tpool_t *tpool_create(int num_threads, int max_queue_size);
 void tpool_add_work(tpool_t *pool, void (*func)(void *), void *arg);
+void tpool_shutdown(tpool_t *pool_ptr);
 
 static inline void barrier_init(frame_barrier_t *barrier, int count) {
   pthread_mutex_init(&barrier->mutex, NULL);
