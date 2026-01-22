@@ -4,7 +4,7 @@ A zero-dependency, hardware-accelerated Mandelbrot set renderer. Built in C and 
 
 ## Tech Stack
 
-- **Backend:** C11, POSIX Threads, AVX instructions set (1, 2 and 512), OpenGL Compute Shaders
+- **Backend:** C11, POSIX Threads, AVX instructions set, OpenGL Compute Shaders
 - **Frontend:** Vanilla JS, HTML5 Canvas
 - **Networking:** Raw TCP Sockets, Custom RFC-6455 WebSocket Implementation
 
@@ -12,7 +12,7 @@ A zero-dependency, hardware-accelerated Mandelbrot set renderer. Built in C and 
 
 - Linux Environment
 - Docker & Docker Compose
-- **Optional:** Intel CPU (AVX/AVX2/512), Intel GPU or NVIDIA GPU
+- **Optional:** Intel CPU, Intel GPU or NVIDIA GPU
 
 ## Usage
 
