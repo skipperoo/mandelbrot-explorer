@@ -10,6 +10,16 @@
 #include <time.h>
 #include <unistd.h>
 
+#if defined(DEBUG) && DEBUG == 1
+#undef DEBUG
+#define DEBUG(...) printf(__VA_ARGS__)
+#else
+#undef DEBUG
+#define DEBUG(...)                                                             \
+  do {                                                                         \
+  } while (0)
+#endif
+
 // --- Structs ---
 
 // GPU Render Job
@@ -115,7 +125,7 @@ gpu_job_t *queue_pop(job_queue_t *q) {
 void render_slice_wrapper(void *arg) {
   render_job_t *job = (render_job_t *)arg;
 
-  if (job->mode == 1) {
+  if (job->mode == SCALAR) {
     render_scalar(job->buffer, job->width, job->start_row, job->end_row,
                   job->iterations, job->x_min, job->y_min, job->x_scale,
                   job->y_scale);
@@ -140,7 +150,7 @@ void render_slice_wrapper(void *arg) {
 void *gpu_worker_thread(void *arg) {
   const char *vendor = (const char *)arg;
 
-  printf("[GPU Worker] Initializing for vendor: %s\n", vendor);
+  DEBUG("[GPU Worker] Initializing for vendor: %s\n", vendor);
   if (!init_opengl_for_vendor(vendor)) {
     fprintf(stderr, "[GPU Worker] Failed to initialize OpenGL for %s\n",
             vendor);
@@ -149,7 +159,7 @@ void *gpu_worker_thread(void *arg) {
     // Let's exit to avoid spinning.
     return NULL;
   }
-  printf("[GPU Worker] Ready and waiting for jobs...\n");
+  DEBUG("[GPU Worker] Ready and waiting for jobs...\n");
 
   while (1) {
     gpu_job_t *job = queue_pop(&g_gpu_queue);
@@ -203,7 +213,7 @@ void *handle_client(void *arg) {
     return NULL;
   }
 
-  printf("Client connected (FD: %d)\n", client_fd);
+  DEBUG("Client connected (FD: %d)\n", client_fd);
 
   char payload[1024];
 
@@ -214,7 +224,7 @@ void *handle_client(void *arg) {
 
     if (sscanf(payload, "%lf,%lf,%lf,%lf,%d,%d,%d", &x_min, &y_min, &x_scale,
                &y_scale, &width, &height, &iterations) != 7) {
-      printf("Invalid request format from FD %d\n", client_fd);
+      DEBUG("Invalid request format from FD %d\n", client_fd);
       continue;
     }
 
@@ -229,7 +239,7 @@ void *handle_client(void *arg) {
         break;
       }
       current_capacity = padded_size;
-      printf("[FD %d] Buffer resized to %zu bytes\n", client_fd, padded_size);
+      DEBUG("[FD %d] Buffer resized to %zu bytes\n", client_fd, padded_size);
     }
 
     struct timespec start_time, end_time;
@@ -300,7 +310,7 @@ void *handle_client(void *arg) {
     double time_taken = (end_time.tv_sec - start_time.tv_sec) * 1000.0 +
                         (end_time.tv_nsec - start_time.tv_nsec) / 1000000.0;
 
-    printf("[FD %d] Rendered in %.2f ms\n", client_fd, time_taken);
+    DEBUG("[FD %d] Rendered in %.2f ms\n", client_fd, time_taken);
 
     clock_gettime(CLOCK_MONOTONIC, &start_time);
     // E. Send Result
@@ -311,12 +321,12 @@ void *handle_client(void *arg) {
     time_taken = (end_time.tv_sec - start_time.tv_sec) * 1000.0 +
                  (end_time.tv_nsec - start_time.tv_nsec) / 1000000.0;
 
-    printf("[FD %d] Sent in in %.2f ms\n", client_fd, time_taken);
+    DEBUG("[FD %d] Sent in in %.2f ms\n", client_fd, time_taken);
     fflush(stdout);
   }
   free(img_buffer);
 
-  printf("Client disconnected (FD: %d)\n", client_fd);
+  DEBUG("Client disconnected (FD: %d)\n", client_fd);
   close(client_fd);
   return NULL;
 }
@@ -343,7 +353,7 @@ int main(int argc, char *argv[]) {
       num_threads = t;
   }
 
-  char *env_scalar = getenv("MANDELBROT_SCALAR");
+  char *env_scalar = getenv("MANDELBROT_SIMD");
   if (env_scalar) {
     if (strcmp(env_scalar, "0") != 0 && strcasecmp(env_scalar, "false") != 0) {
       mode = AVX;

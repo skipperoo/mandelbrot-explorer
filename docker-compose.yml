@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     environment:
       - MANDELBROT_THREADS=12
-      - MANDELBROT_SCALAR=0  # Set to 1 to force scalar mode
+      - MANDELBROT_SIMD=1  # Set to 1 to force scalar mode
     expose:
       - "8080" # Only exposed to internal Docker network, not the host
   # Nginx Frontend Service

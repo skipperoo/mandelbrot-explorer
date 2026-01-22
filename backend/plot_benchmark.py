@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 data = []
+gpu_data = []
 current_res = None
 current_threads = None
 
@@ -24,21 +25,36 @@ for line in lines:
         current_res = header_match.group(1)
         current_threads = int(header_match.group(2))
         continue
+
+    # Parse GPU Header: GPU Benchmark (960x540)
+    gpu_header_match = re.search(r"GPU Benchmark \((.*?)\)", line)
+    if gpu_header_match:
+        current_res = gpu_header_match.group(1)
+        current_threads = None
+        continue
     
     # Parse Data: [Scalar] Time: 0.0567 seconds | FPS: 17.64
-    data_match = re.search(r"\[(Scalar|SIMD)\] Time: ([\d\.]+) seconds \| FPS: ([\d\.]+)", line)
+    data_match = re.search(r"\[(.*?)\] Time: ([\d\.]+) seconds \| FPS: ([\d\.]+)", line)
     if data_match and current_res:
         algo_type = data_match.group(1)
         time_val = float(data_match.group(2))
         fps_val = float(data_match.group(3))
         
-        data.append({
-            "Resolution": current_res,
-            "Threads": current_threads,
-            "Type": algo_type,
-            "Time": time_val,
-            "FPS": fps_val
-        })
+        if current_threads is not None:
+            data.append({
+                "Resolution": current_res,
+                "Threads": current_threads,
+                "Type": algo_type,
+                "Time": time_val,
+                "FPS": fps_val
+            })
+        else:
+            gpu_data.append({
+                "Resolution": current_res,
+                "Type": algo_type,
+                "Time": time_val,
+                "FPS": fps_val
+            })
 
 df = pd.DataFrame(data)
 
@@ -51,6 +67,8 @@ label_order = []
 for res in resolution_order:
     label_order.append(f"{res} - Scalar")
     label_order.append(f"{res} - SIMD")
+    label_order.append(f"{res} - Intel GPU")
+    label_order.append(f"{res} - NVIDIA GPU")
 
 # Create the plot with all lines in one graph
 fig = px.line(
@@ -59,13 +77,34 @@ fig = px.line(
     y="FPS",
     color="Label",
     markers=True,
-    title="Benchmark Performance: Scalar vs SIMD",
+    title="Benchmark Performance: CPU vs GPU",
     category_orders={"Label": label_order},
     hover_data=["Resolution", "Type", "Time"]
 )
 
-# Add single ideal scaling line (y=x)
+# Add GPU benchmarks as horizontal lines
 thread_range = [df["Threads"].min(), df["Threads"].max()]
+
+# Sort GPU data by resolution and type to match label_order
+gpu_data_sorted = sorted(gpu_data, key=lambda x: (resolution_order.index(x["Resolution"]), x["Type"]))
+
+for gpu_entry in gpu_data_sorted:
+    res = gpu_entry["Resolution"]
+    algo = gpu_entry["Type"]
+    fps = gpu_entry["FPS"]
+    label = f"{res} - {algo}"
+    
+    fig.add_trace(go.Scatter(
+        x=thread_range,
+        y=[fps, fps],
+        mode='lines',
+        name=label,
+        line=dict(dash='dot', width=2),
+        legendgroup=label,
+        hovertemplate=f"<b>{label}</b><br>FPS: {fps}<br>Time: {gpu_entry['Time']}s<extra></extra>"
+    ))
+
+# Add single ideal scaling line (y=x)
 fig.add_trace(go.Scatter(
     x=thread_range,
     y=thread_range,

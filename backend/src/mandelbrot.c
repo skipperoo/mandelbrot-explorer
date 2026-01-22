@@ -1,5 +1,15 @@
 #include "include/mandelbrot.h"
 
+#if defined(DEBUG) && DEBUG == 1
+#undef DEBUG
+#define DEBUG(...) printf(__VA_ARGS__)
+#else
+#undef DEBUG
+#define DEBUG(...)                                                             \
+  do {                                                                         \
+  } while (0)
+#endif
+
 static char current_gpu_vendor[64] = "None";
 
 /**
@@ -276,12 +286,15 @@ static PFNGLDISPATCHCOMPUTEPROC glDispatchCompute_ptr;
 static PFNGLMEMORYBARRIERPROC glMemoryBarrier_ptr;
 static PFNGLGETBUFFERSUBDATAPROC glGetBufferSubData_ptr;
 static PFNGLBINDBUFFERBASEPROC glBindBufferBase_ptr;
+static PFNGLMAPBUFFERRANGEPROC glMapBufferRange_ptr;
+static PFNGLUNMAPBUFFERPROC glUnmapBuffer_ptr;
 
 static EGLDisplay egl_display = EGL_NO_DISPLAY;
 static EGLContext egl_context = EGL_NO_CONTEXT;
 static GLuint gl_program = 0;
 static GLuint gl_ssbo = 0;
 static size_t gl_ssbo_size = 0;
+static uint32_t *gl_mapped_buffer = NULL;
 static pthread_mutex_t gl_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Cached Uniform Locations
@@ -293,6 +306,7 @@ static GLint loc_y_min = -1;
 static GLint loc_x_scale = -1;
 static GLint loc_y_scale = -1;
 static GLint loc_start_row = -1;
+static GLint loc_is_deep_zoom = -1;
 
 typedef const GLubyte *(*PFNGLGETSTRINGPROC)(GLenum);
 
@@ -311,20 +325,50 @@ const char *compute_shader_source =
     "uniform double x_scale;\n"
     "uniform double y_scale;\n"
     "uniform int start_row;\n"
+    "uniform int is_deep_zoom;\n"
+    "\n"
     "void main() {\n"
     "    uint px = gl_GlobalInvocationID.x;\n"
     "    uint py = gl_GlobalInvocationID.y;\n"
     "    if (px >= width || py >= uint(rows)) return;\n"
-    "    double x0 = x_min + double(px) * x_scale;\n"
-    "    double y0 = y_min + double(py + uint(start_row)) * y_scale;\n"
-    "    double x = 0.0, y = 0.0, x2 = 0.0, y2 = 0.0;\n"
+    "\n"
+    "    double x0d = x_min + double(px) * x_scale;\n"
+    "    double y0d = y_min + double(py + uint(start_row)) * y_scale;\n"
+    "\n"
+    "    // 1. Algorithmic Optimization: Main Cardioid and Period-2 Bulb "
+    "Check\n"
+    "    double y02 = y0d * y0d;\n"
+    "    double q = (x0d - 0.25) * (x0d - 0.25) + y02;\n"
+    "    if (q * (q + (x0d - 0.25)) < 0.25 * y02 || (x0d + 1.0) * (x0d + 1.0) "
+    "+ y02 < 0.0625) {\n"
+    "        iterations[py * width + px] = uint(max_iterations);\n"
+    "        return;\n"
+    "    }\n"
+    "\n"
     "    int iter = 0;\n"
-    "    while (x2 + y2 <= 4.0 && iter < max_iterations) {\n"
-    "        y = 2.0 * x * y + y0;\n"
-    "        x = x2 - y2 + x0;\n"
-    "        x2 = x * x;\n"
-    "        y2 = y * y;\n"
-    "        iter++;\n"
+    "    // 2. Precision Optimization: Use float if zoom level allows it.\n"
+    "    // Dispatch time is significantly lower with FP32 than FP64 on most "
+    "GPUs.\n"
+    "    if (is_deep_zoom != 0) {\n"
+    "        double x = 0.0, y = 0.0, x2 = 0.0, y2 = 0.0;\n"
+    "        while (x2 + y2 <= 4.0 && iter < max_iterations) {\n"
+    "            y = (x + x) * y + y0d;\n"
+    "            x = x2 - y2 + x0d;\n"
+    "            x2 = x * x;\n"
+    "            y2 = y * y;\n"
+    "            iter++;\n"
+    "        }\n"
+    "    } else {\n"
+    "        float x0 = float(x0d);\n"
+    "        float y0 = float(y0d);\n"
+    "        float x = 0.0, y = 0.0, x2 = 0.0, y2 = 0.0;\n"
+    "        while (x2 + y2 <= 4.0 && iter < max_iterations) {\n"
+    "            y = (x + x) * y + y0;\n"
+    "            x = x2 - y2 + x0;\n"
+    "            x2 = x * x;\n"
+    "            y2 = y * y;\n"
+    "            iter++;\n"
+    "        }\n"
     "    }\n"
     "    iterations[py * width + px] = uint(iter);\n"
     "}\n";
@@ -334,99 +378,136 @@ static size_t gpu_temp_buffer_capacity = 0;
 void render_opengl_frame(uint16_t *buffer, int width, int start_row,
                          int end_row, int max_iterations, double x_min,
                          double y_min, double x_scale, double y_scale) {
-  struct timespec t0, t1, t2, t3, t4;
+  struct timespec t0, t1, t2, t3;
   clock_gettime(CLOCK_MONOTONIC, &t0);
 
   int rows = end_row - start_row;
   size_t num_pixels = width * rows;
-
-  // 1. Calculate size required by the GPU (32-bit uints)
   size_t gpu_data_size_bytes = num_pixels * sizeof(uint32_t);
 
-  // 2. Resize GPU SSBO if necessary
-  if (gpu_data_size_bytes > gl_ssbo_size) {
+  // 2. Resize GPU SSBO if necessary and Use Persistent Mapping
+  if (gpu_data_size_bytes > gl_ssbo_size || !gl_mapped_buffer) {
+    if (gl_mapped_buffer) {
+      glBindBuffer_ptr(GL_SHADER_STORAGE_BUFFER, gl_ssbo);
+      glUnmapBuffer_ptr(GL_SHADER_STORAGE_BUFFER);
+      gl_mapped_buffer = NULL;
+    }
+
     glBindBuffer_ptr(GL_SHADER_STORAGE_BUFFER, gl_ssbo);
-    // Note: GL_DYNAMIC_DRAW is usually better for frequent writes
+
+    // We use glBufferData with NULL to allocate.
+    // For persistent mapping, some drivers prefer glBufferStorage,
+    // but glBufferData + glMapBufferRange works on many.
     glBufferData_ptr(GL_SHADER_STORAGE_BUFFER, gpu_data_size_bytes, NULL,
-                     GL_DYNAMIC_DRAW);
+                     GL_DYNAMIC_READ);
+
+    // Map the buffer persistently.
+    // Bits: GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT
+    // 0x0001 | 0x0040 | 0x0080 = 0x00C1
+    gl_mapped_buffer = (uint32_t *)glMapBufferRange_ptr(
+        GL_SHADER_STORAGE_BUFFER, 0, gpu_data_size_bytes,
+        0x0001 | 0x0040 | 0x0080);
+
     gl_ssbo_size = gpu_data_size_bytes;
   }
 
-  // 3. Resize CPU Temporary Buffer if necessary
-  // This buffer bridges the gap between the GPU's 32-bit output and your 16-bit
-  // app buffer
+  // 3. Resize CPU Temporary Buffer (Fallback) if necessary
   if (gpu_data_size_bytes > gpu_temp_buffer_capacity) {
     if (gpu_temp_buffer)
       free(gpu_temp_buffer);
-    // Use aligned alloc for SIMD safety? malloc is usually 16-byte aligned.
-    // AVX-512 prefers 64-byte alignment.
     gpu_temp_buffer = aligned_alloc(64, gpu_data_size_bytes);
-    if (!gpu_temp_buffer) {
-      // Fallback if aligned_alloc fails (e.g. size not multiple)
+    if (!gpu_temp_buffer)
       gpu_temp_buffer = malloc(gpu_data_size_bytes);
-    }
     gpu_temp_buffer_capacity = gpu_data_size_bytes;
   }
 
   glUseProgram_ptr(gl_program);
-
-  // 4. Set Uniforms (Using cached locations)
   glUniform1i_ptr(loc_width, width);
   glUniform1i_ptr(loc_rows, rows);
   glUniform1i_ptr(loc_max_iterations, max_iterations);
-
-  // Important: Shader uses 'double', so we MUST use glUniform1d
   glUniform1d_ptr(loc_x_min, x_min);
   glUniform1d_ptr(loc_y_min, y_min);
   glUniform1d_ptr(loc_x_scale, x_scale);
   glUniform1d_ptr(loc_y_scale, y_scale);
   glUniform1i_ptr(loc_start_row, start_row);
 
-  glBindBuffer_ptr(GL_SHADER_STORAGE_BUFFER, gl_ssbo);
+  // Choose precision based on zoom level.
+  // float is fine until ~10^-7 scale.
+  int is_deep_zoom = (x_scale < 1.0e-7);
+  glUniform1i_ptr(loc_is_deep_zoom, is_deep_zoom);
+
   glBindBufferBase_ptr(GL_SHADER_STORAGE_BUFFER, 0, gl_ssbo);
 
   // 5. Dispatch
-  // Shader uses 16x16 local size, and handles 1 pixel per thread.
-  // We use ceil(width/16) logic: (width + 15) / 16
   glDispatchCompute_ptr((width + 15) / 16, (rows + 15) / 16, 1);
 
-  // Barrier to ensure GPU is done
+  // Barrier to ensure GPU is done writing
   glMemoryBarrier_ptr(GL_SHADER_STORAGE_BARRIER_BIT);
+
+  // To ensure the CPU waits for the GPU, we might need a fence,
+  // but glFinish() is a simple (though heavy) way to verify timing impact.
+  // Actually, Persistent Coherent mapping handles visibility, but we still need
+  // sync.
+  glFinish();
 
   clock_gettime(CLOCK_MONOTONIC, &t1);
 
-  // 6. Read back into TEMP 32-bit buffer
-  glGetBufferSubData_ptr(GL_SHADER_STORAGE_BUFFER, 0, gpu_data_size_bytes,
-                         gpu_temp_buffer);
+  // 6. Read back: With persistent mapping, we just access gl_mapped_buffer.
+  // If mapping failed, we fallback to glGetBufferSubData.
+  uint32_t *src_ptr = gl_mapped_buffer;
+  if (!src_ptr) {
+    glGetBufferSubData_ptr(GL_SHADER_STORAGE_BUFFER, 0, gpu_data_size_bytes,
+                           gpu_temp_buffer);
+    src_ptr = gpu_temp_buffer;
+  }
 
   clock_gettime(CLOCK_MONOTONIC, &t2);
 
-  // 7. Downcast: Convert 32-bit GPU output to 16-bit App buffer
-  // This loop is required because the shader outputs 'uint', but you need
-  // 'uint16_t'
+  // 7. SIMD-optimized Downcast
   size_t i = 0;
+#if defined(__AVX2__)
+  // Process 8 pixels at a time (256-bit load = 8 * 32-bit uint)
+  for (; i + 7 < num_pixels; i += 8) {
+    __m256i v32 = _mm256_loadu_si256((__m256i *)&src_ptr[i]);
+
+    // We want to convert 8x32-bit to 8x16-bit.
+    // _mm256_packus_epi32 takes two 256-bit registers and produces one.
+    // Here we have one 256-bit register (8x32).
+    // We can use _mm256_castsi256_si128 to get the low 4 and extract high 4.
+    __m128i low = _mm256_castsi256_si128(v32);
+    __m128i high = _mm256_extracti128_si256(v32, 1);
+
+    // Pack 4+4 32-bit to 8 16-bit
+    __m128i v16 = _mm_packus_epi32(low, high);
+    _mm_storeu_si128((__m128i *)&buffer[i], v16);
+  }
+#endif
 
   // Scalar Cleanup
   for (; i < num_pixels; i++) {
-    // Simple clamp to ensure we don't overflow if iter > 65535 (unlikely)
-    uint32_t val = gpu_temp_buffer[i];
+    uint32_t val = src_ptr[i];
     buffer[i] = (val > 65535) ? 65535 : (uint16_t)val;
   }
+
   clock_gettime(CLOCK_MONOTONIC, &t3);
 
   double t_dispatch =
-      (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1000000.0;
+      (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
   double t_readback =
-      (t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_nsec - t1.tv_nsec) / 1000000.0;
+      (t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_nsec - t1.tv_nsec) / 1e6;
   double t_downcast =
-      (t3.tv_sec - t2.tv_sec) * 1000.0 + (t3.tv_nsec - t2.tv_nsec) / 1000000.0;
+      (t3.tv_sec - t2.tv_sec) * 1000.0 + (t3.tv_nsec - t2.tv_nsec) / 1e6;
 
-  printf(
-      "[GPU Detail] Dispatch: %.2fms | Readback: %.2fms | Downcast: %.2fms\n",
-      t_dispatch, t_readback, t_downcast);
+  // DEBUG("[GPU Detail] Dispatch: %.2fms | Readback: %.2fms | Downcast:
+  // %.2fms\n", t_dispatch, t_readback, t_downcast);
 }
 
 void shutdown_opengl() {
+  if (gl_mapped_buffer) {
+    glBindBuffer_ptr(GL_SHADER_STORAGE_BUFFER, gl_ssbo);
+    glUnmapBuffer_ptr(GL_SHADER_STORAGE_BUFFER);
+    gl_mapped_buffer = NULL;
+  }
   if (egl_display != EGL_NO_DISPLAY) {
     eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (egl_context != EGL_NO_CONTEXT)
@@ -472,6 +553,9 @@ void setup_opengl_resources() {
       (PFNGLGETBUFFERSUBDATAPROC)eglGetProcAddress("glGetBufferSubData");
   glBindBufferBase_ptr =
       (PFNGLBINDBUFFERBASEPROC)eglGetProcAddress("glBindBufferBase");
+  glMapBufferRange_ptr =
+      (PFNGLMAPBUFFERRANGEPROC)eglGetProcAddress("glMapBufferRange");
+  glUnmapBuffer_ptr = (PFNGLUNMAPBUFFERPROC)eglGetProcAddress("glUnmapBuffer");
   glGetUniformLocation_ptr =
       (PFNGLGETUNIFORMLOCATIONPROC)eglGetProcAddress("glGetUniformLocation");
 
@@ -500,6 +584,7 @@ void setup_opengl_resources() {
   loc_x_scale = glGetUniformLocation_ptr(gl_program, "x_scale");
   loc_y_scale = glGetUniformLocation_ptr(gl_program, "y_scale");
   loc_start_row = glGetUniformLocation_ptr(gl_program, "start_row");
+  loc_is_deep_zoom = glGetUniformLocation_ptr(gl_program, "is_deep_zoom");
 }
 
 // RENAMED & EXPOSED: Was init_opengl, now init_opengl_for_vendor
@@ -566,7 +651,7 @@ int init_opengl_for_vendor(const char *target_vendor) {
 
           // Case-insensitive check (simplified)
           int match = 0;
-          // printf("%s - %s\n", vendor, renderer);
+          // DEBUG("%s - %s\n", vendor, renderer);
           if (target_vendor && vendor && strstr(vendor, target_vendor))
             match = 1;
           if (target_vendor && renderer && strstr(renderer, target_vendor))
@@ -577,7 +662,7 @@ int init_opengl_for_vendor(const char *target_vendor) {
             match = 1;
 
           if (match) {
-            // printf("EGL: Match Found! Vendor: %s | Renderer: %s\n", vendor,
+            // DEBUG("EGL: Match Found! Vendor: %s | Renderer: %s\n", vendor,
             // renderer);
 
             // 1. Destroy the temporary check-context
