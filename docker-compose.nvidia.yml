@@ -12,8 +12,8 @@ services:
       - MANDELBROT_NVIDIA_GPU=1     # Set to 1 to enable GPU acceleration
       - NVIDIA_DRIVER_CAPABILITIES=graphics,compute,utility
       - NVIDIA_VISIBLE_DEVICES=all
-    expose:
-      - "8080" # Only exposed to internal Docker network, not the host
+    ports:
+      - 8080:8080
     deploy:
       resources:
         reservations:

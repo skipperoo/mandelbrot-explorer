@@ -13,8 +13,8 @@ services:
       - MANDELBROT_INTEL_GPU=1     # Set to 1 to enable GPU acceleration
       # - MESA_LOADER_DRIVER_OVERRIDE=iris
       - LIBGL_ALWAYS_SOFTWARE=0 
-    expose:
-      - "8080" # Only exposed to internal Docker network, not the host
+    ports:
+      - 8080:8080
     devices:
       - /dev/dri/renderD128:/dev/dri/renderD128
 
