@@ -27,7 +27,7 @@ docker-compose -f docker-compose.scalar.yml up --build
 **Intel SIMD Mode (Requires AVX)**
 
 ```bash
-docker-compose -f docker-compose.yml up --build
+docker-compose -f docker-compose.simd.yml up --build
 ```
 
 **Intel GPU Mode**
