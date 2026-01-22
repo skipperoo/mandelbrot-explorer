@@ -19,6 +19,7 @@ SERVER_SRCS = $(SRC_DIR)/server.c \
               $(SRC_DIR)/mandelbrot.c \
               $(SRC_DIR)/tpool.c \
               $(SRC_DIR)/websocket.c \
+              $(SRC_DIR)/webserver.c \
               $(SRC_DIR)/websocket_utils.c
 
 # Object files corresponding to server sources

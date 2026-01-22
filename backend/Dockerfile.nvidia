@@ -38,6 +38,9 @@ RUN apt-get update && apt-get install -y \
 # Adjust the path "bin/server" if your Makefile outputs somewhere else
 COPY --from=builder /app/bin/server /app/server
 
+# Copy the frontend to the www directory to be served by the backend
+COPY frontend/ /var/www/
+
 # Ensure execution permissions
 RUN chmod +x /app/server
 

@@ -21,12 +21,4 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-  # Nginx Frontend Service
-  frontend:
-    build: ./frontend
-    container_name: mandelbrot_frontend
-    restart: unless-stopped
-    ports:
-      - "8080:80" # Map host port 80 to container port 80
-    depends_on:
-      - backend
+

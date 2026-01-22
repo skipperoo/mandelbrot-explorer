@@ -1,5 +1,6 @@
 #include "include/mandelbrot.h"
 #include "include/tpool.h"
+#include "include/webserver.h"
 #include "include/websocket.h"
 #include <getopt.h>
 #include <pthread.h>
@@ -78,6 +79,7 @@ typedef struct {
 
 // Global Queue
 job_queue_t g_gpu_queue;
+webserver_t g_webserver;
 
 // --- Queue Functions ---
 
@@ -208,6 +210,10 @@ void *handle_client(void *arg) {
   }
 
   if (perform_handshake(client_fd, buffer) != 0) {
+    if (strstr(buffer, "GET ") == buffer) {
+      webserver_enqueue(&g_webserver, client_fd, buffer);
+      return NULL;
+    }
     fprintf(stderr, "Handshake failed\n");
     close(client_fd);
     return NULL;
@@ -456,7 +462,11 @@ int main(int argc, char *argv[]) {
   // 2. Initialize Shared Thread Pool (for CPU tasks)
   tpool_t *pool = tpool_create(num_threads, 1024);
 
-  // 3. Initialize GPU Worker if needed
+  // 3. Initialize Webserver
+  webserver_init(&g_webserver, "/var/www", 100);
+  webserver_start(&g_webserver);
+
+  // 4. Initialize GPU Worker if needed
   if (mode == INTEL_GPU || mode == NVIDIA_GPU) {
     queue_init(&g_gpu_queue);
     const char *vendor = (mode == INTEL_GPU) ? "Intel" : "NVIDIA";
