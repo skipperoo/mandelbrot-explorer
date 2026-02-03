@@ -126,3 +126,4 @@ fig.update_layout(
 )
 
 fig.show()
+fig.write_html(f"{sys.argv[1][:sys.argv[1].index(".")]}.html")

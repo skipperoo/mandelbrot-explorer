@@ -1,12 +1,11 @@
 services:
-# C Backend Service
+  # C Backend Service
   backend:
     build: ./backend
     container_name: mandelbrot_backend
     restart: unless-stopped
     environment:
       - MANDELBROT_THREADS=12
-      - MANDELBROT_SIMD=1  # Set to 1 to force scalar mode
+      - MANDELBROT_SIMD=1
     ports:
       - 8080:8080
-

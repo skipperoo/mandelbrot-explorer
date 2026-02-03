@@ -1,23 +1,27 @@
 class MandelbrotViewer {
   constructor() {
-    // --- Configuration ---
     this.socketUrl = `ws://${window.location.host}/ws`;
     this.canvas = document.getElementById('mandelbrotCanvas');
     this.ctx = this.canvas.getContext('2d', { alpha: true }); // Optimize for no alpha
 
-    // --- State ---
-    // Initial view: Standard Mandelbrot center
     this.state = {
-      x: -2.3, // x_min
-      y: -1.2, // y_min
-      w: 4.0,  // Viewport width in math coords (controls x_scale)
-      h: 4.0,  // Viewport height in math coords (calculated from aspect)
+      x: -2.3,
+      y: -1.2,
+      w: 4.0,
+      h: 4.0,
+      iter: 1000
+    };
+    this.initialState = {
+      x: -2.3,
+      y: -1.2,
+      w: 4.0,
+      h: 4.0,
       iter: 1000
     };
 
     this.isDragging = false;
     this.lastMouse = { x: 0, y: 0 };
-    this.resolutionDivider = 1; // 1 = full res, 2 = half res (for speed)
+    this.resolutionDivider = 1;
     this.animationPath = [];
     this.isPlaying = false;
     this.socket = null;
@@ -26,7 +30,6 @@ class MandelbrotViewer {
     this.hasMoved = false;
     this.lastFrameTime = performance.now();
 
-    // Generate the Blue Ocean Palette
     this.currentTheme = 'ocean';
     this.palette = new Uint32Array(this.maxIterations + 1);
     this.generatePalette(this.currentTheme);
@@ -38,13 +41,12 @@ class MandelbrotViewer {
     this.setupListeners();
     this.resize();
     window.addEventListener('resize', () => this.resize());
-    this.renderLoop(); // Start the render trigger loop
+    this.renderLoop();
   }
   generatePalette(themeName) {
-    this.currentTheme = themeName || 'ocean'; // Default to ocean
+    this.currentTheme = themeName || 'ocean';
 
     for (let i = 0; i <= this.maxIterations; i++) {
-      // Base case: Inside the set is always Black
       if (i === this.maxIterations) {
         this.palette[i] = 0xFF000000;
         continue;
@@ -53,47 +55,37 @@ class MandelbrotViewer {
       let r, g, b;
       // Normalize iteration count. 
       // Multiplier '0.1' determines how fast the colors cycle (lower = wider bands)
-      const t = i * 0.1;
+      const t = i * 0.2;
 
       switch (this.currentTheme) {
         case 'fire':
-          // Red and Gold
           r = Math.floor((0.6 + 0.4 * Math.cos(t)) * 255);
           g = Math.floor((0.4 + 0.3 * Math.cos(t + 1.0)) * 255);
           b = Math.floor((0.2 + 0.2 * Math.cos(t + 2.0)) * 255);
           break;
 
         case 'matrix':
-          // Neon Green & Black
           r = 0;
           g = Math.floor((0.6 + 0.4 * Math.sin(t * 0.5)) * 255);
           b = 0;
-          if (g < 60) g = 0; // Create stark black bands
+          if (g < 60) g = 0;
           break;
 
         case 'rainbow':
-          // Full spectrum
           r = Math.floor((0.5 + 0.5 * Math.sin(t)) * 255);
           g = Math.floor((0.5 + 0.5 * Math.sin(t + 2.09)) * 255);
           b = Math.floor((0.5 + 0.5 * Math.sin(t + 4.18)) * 255);
           break;
 
         case 'zebra':
-          // Black and White Stripes for debugging
           const v = (i % 20) < 10 ? 255 : 0;
           r = g = b = v;
           break;
 
         case 'ocean':
         default:
-          // FIXED BLUE OCEAN MATH
-          // Red: kept very low (0-50 range) to prevent yellowing
           r = Math.floor(25 + 25 * Math.cos(t));
-
-          // Green: varies mid-range to create Teal/Cyan
           g = Math.floor(100 + 80 * Math.sin(t * 0.5));
-
-          // Blue: kept high (150-255)
           b = Math.floor(200 + 55 * Math.cos(t));
           break;
       }
@@ -119,7 +111,6 @@ class MandelbrotViewer {
       console.log("Disconnected");
       statusDot.classList.remove('connected');
       statusDot.classList.add('disconnected');
-      // Auto reconnect after 3s
       setTimeout(() => this.connect(), 3000);
     };
 
@@ -128,9 +119,6 @@ class MandelbrotViewer {
     };
   }
 
-  // --- Core Logic: Coordinate Systems ---
-
-  // Updates internal state based on pixel resolution
   updateAspect() {
     const aspect = this.canvas.width / this.canvas.height;
     // Keep x_scale fixed, adjust y_scale (height) to match aspect
@@ -139,11 +127,9 @@ class MandelbrotViewer {
   }
 
   getParams() {
-    // Current actual resolution requested
     const width = Math.floor(this.canvas.width / this.resolutionDivider);
     const height = Math.floor(this.canvas.height / this.resolutionDivider);
 
-    // Math Scale per pixel
     const xScale = this.state.w / width;
     const yScale = this.state.h / height; // Should be roughly same as xScale
 
@@ -158,22 +144,30 @@ class MandelbrotViewer {
     };
   }
 
-  // --- Networking ---
 
   requestFrame() {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
     if (this.pendingRequest) return; // Flow control: don't flood server
 
     const p = this.getParams();
+    this.requestedIter = p.iterations;
     // Protocol: "x_min,y_min,x_scale,y_scale,width,height,iterations"
     const msg = `${p.x_min.toFixed(15)},${p.y_min.toFixed(15)},${p.x_scale.toFixed(15)},${p.y_scale.toFixed(15)},${p.width},${p.height},${p.iterations}`;
 
     this.socket.send(msg);
     this.pendingRequest = true;
-    document.getElementById('loading').classList.remove('hidden');
+    if (this.loadingTimeout)
+      clearTimeout(this.loadingTimeout);
+    this.loadingTimeout = setTimeout(() => {
+      if (this.pendingRequest) {
+        document.getElementById('loading').classList.remove('hidden');
+      }
+    }, 300);
   }
 
   handleResponse(arrayBuffer) {
+    if (this.loadingTimeout)
+      clearTimeout(this.loadingTimeout);
     this.pendingRequest = false;
     document.getElementById('loading').classList.add('hidden');
 
@@ -194,13 +188,12 @@ class MandelbrotViewer {
       return;
     }
 
-    // 1. SAVE DATA: Clone the buffer so we can re-use it for theme changes
+    // Clone the buffer so we can re-use it for theme changes
     // We use Uint16Array to interpret the raw bytes
     this.lastIterations = new Uint16Array(arrayBuffer);
+    this.renderedIter = this.requestedIter;
 
-    // 2. Trigger Draw
     this.draw();
-
     this.updateUI();
     if (this.isPlaying) this.advanceAnimation();
   }
@@ -216,8 +209,10 @@ class MandelbrotViewer {
 
     // Map Iterations -> Colors using the CURRENT palette
     const len = width * height;
+    const maxVal = this.renderedIter;
     for (let k = 0; k < len; k++) {
-      pixelView[k] = this.palette[this.lastIterations[k]];
+      const val = this.lastIterations[k];
+      pixelView[k] = (val >= maxVal) ? 0xFF000000 : this.palette[val];
     }
 
     if (this.resolutionDivider > 1) {
@@ -232,7 +227,6 @@ class MandelbrotViewer {
   setupListeners() {
     const themeSelect = document.getElementById('themeSelect');
     themeSelect.addEventListener('change', (e) => {
-      // 1. Update Palette Table
       this.generatePalette(e.target.value);
       this.draw();
     });
@@ -240,10 +234,7 @@ class MandelbrotViewer {
       e.preventDefault();
 
       // 1. Reset to initial values (from constructor)
-      this.state.x = -2.0;
-      this.state.y = -1.5;
-      this.state.w = 3.0;
-
+      this.state = structuredClone(this.initialState);
       // 2. Recalculate height based on current window aspect ratio
       // (Crucial so the image doesn't look stretched if the window size changed)
       this.updateAspect();

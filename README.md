@@ -4,7 +4,7 @@ A zero-dependency, hardware-accelerated Mandelbrot set renderer. Built in C and 
 
 ## Tech Stack
 
-- **Backend:** C11, POSIX Threads, AVX instructions set, OpenGL Compute Shaders
+- **Backend:** C, POSIX Threads, AVX instructions set, OpenGL Compute Shaders
 - **Frontend:** Vanilla JS, HTML5 Canvas
 - **Networking:** Raw TCP Sockets, Custom RFC-6455 WebSocket Implementation
 

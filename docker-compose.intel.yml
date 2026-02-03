@@ -1,7 +1,7 @@
 services:
-# C Backend Service
+  # C Backend Service
   backend:
-    build: 
+    build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: mandelbrot_backend
@@ -9,12 +9,10 @@ services:
     user: 1000:109
     environment:
       - MANDELBROT_THREADS=0
-      - MANDELBROT_SCALAR=0  # Set to 1 to force scalar mode
-      - MANDELBROT_INTEL_GPU=1     # Set to 1 to enable GPU acceleration
-      # - MESA_LOADER_DRIVER_OVERRIDE=iris
-      - LIBGL_ALWAYS_SOFTWARE=0 
+      - MANDELBROT_SCALAR=0
+      - MANDELBROT_INTEL_GPU=1 # Set to 1 to enable GPU acceleration
+      - LIBGL_ALWAYS_SOFTWARE=0
     ports:
       - 8080:8080
     devices:
       - /dev/dri/renderD128:/dev/dri/renderD128
-

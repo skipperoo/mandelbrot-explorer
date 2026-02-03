@@ -68,9 +68,6 @@ void *gpu_worker_thread(void *arg) {
   if (!init_opengl_for_vendor(vendor)) {
     fprintf(stderr, "[GPU Worker] Failed to initialize OpenGL for %s\n",
             vendor);
-    // In a real app we might want to exit or handle this gracefully.
-    // For now, we loop but do nothing or exit?
-    // Let's exit to avoid spinning.
     return NULL;
   }
   DEBUG("[GPU Worker] Ready and waiting for jobs...\n");
@@ -78,19 +75,10 @@ void *gpu_worker_thread(void *arg) {
   while (1) {
     gpu_job_t *job = queue_pop(&g_gpu_queue);
 
-    // Render using the persistent context
-    // We assume init_opengl_for_vendor leaves the context active (or we
-    // reactivate it) The current implementation of init_opengl_for_vendor sets
-    // the context active. However, robust code should probably
-    // EnsureContextCurrent() here if needed. Since we are the only thread, it
-    // should stay active.
-
-    // render_opengl_frame assumes context is active.
     render_opengl_frame(job->buffer, job->width, 0, job->height,
                         job->iterations, job->x_min, job->y_min, job->x_scale,
                         job->y_scale);
 
-    // Notify client thread
     pthread_mutex_lock(&job->mutex);
     job->done = 1;
     pthread_cond_signal(&job->cond);
@@ -100,7 +88,6 @@ void *gpu_worker_thread(void *arg) {
 }
 
 void *handle_client(void *arg) {
-  // 1. Unpack Arguments
   client_context_t *ctx = (client_context_t *)arg;
   int client_fd = ctx->client_fd;
   tpool_t *pool = ctx->pool;
@@ -112,7 +99,6 @@ void *handle_client(void *arg) {
   uint16_t *img_buffer = NULL;
   size_t current_capacity = 0;
 
-  // 2. Handshake
   ssize_t bytes_read = read(client_fd, buffer, 4096);
   if (bytes_read <= 0) {
     close(client_fd);
@@ -133,7 +119,6 @@ void *handle_client(void *arg) {
 
   char payload[1024];
 
-  // 3. Request Loop
   while (receive_frame(client_fd, payload)) {
     double x_min, y_min, x_scale, y_scale;
     int width, height, iterations;
@@ -162,7 +147,6 @@ void *handle_client(void *arg) {
     clock_gettime(CLOCK_MONOTONIC, &start_time);
 
     if (mode == INTEL_GPU || mode == NVIDIA_GPU) {
-      // Create GPU Job
       gpu_job_t job;
       job.buffer = img_buffer;
       job.width = width;
@@ -399,7 +383,7 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
   listen(server_fd, 10);
-  printf("Listening on port 8080...\n");
+  printf("Listening on http://0.0.0.0:8080...\n");
   fflush(stdout);
 
   // 5. Accept Loop

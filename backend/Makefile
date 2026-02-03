@@ -1,18 +1,11 @@
-# Compiler and Flags
 CC = gcc
-# -O3: Max optimization
-# -pthread: Enable threading support
-# -I src/include: Look for headers in the include folder
 CFLAGS = -Wextra -O3 -ffast-math -march=native -pthread -I src/include
 LDFLAGS = -lm -pthread -lGL -lEGL
 
-# Directories
 SRC_DIR = src
 OBJ_DIR = obj
 BIN_DIR = bin
 
-# --- Server Target Configuration ---
-# Source files required for the main server
 SERVER_SRCS = $(SRC_DIR)/server.c \
               $(SRC_DIR)/queue.c \
               $(SRC_DIR)/mandelbrot.c \
@@ -21,61 +14,43 @@ SERVER_SRCS = $(SRC_DIR)/server.c \
               $(SRC_DIR)/webserver.c \
               $(SRC_DIR)/websocket_utils.c
 
-# Object files corresponding to server sources
 SERVER_OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SERVER_SRCS))
-
-# Output Binary
 SERVER_BIN = $(BIN_DIR)/server
 
-# --- Benchmark Target Configuration (Optional) ---
-# Assuming mandel_bench is a source file (src/mandel_bench.c)
-BENCH_SRCS = $(SRC_DIR)/mandel_bench.c \
-             $(SRC_DIR)/mandelbrot.c \
-             $(SRC_DIR)/tpool.c
+.PHONY: all clean dirs bench debug help
 
-BENCH_OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(BENCH_SRCS))
-BENCH_BIN = $(BIN_DIR)/mandel_bench
-
-# --- Rules ---
-
-.PHONY: all clean dirs help
-
-# Default target: build the server
 all: dirs $(SERVER_BIN)
 
-# Link the Server
+debug: CFLAGS += -DDEBUG=1
+debug: all
+
+valgrind: CFLAGS = -Wextra -Og -g -ffast-math -march=native -pthread -I src/include
+valgrind: clean all
+	valgrind --leak-check=full  --show-leak-kinds=all --track-origins=yes ./$(SERVER_BIN) -b
+
 $(SERVER_BIN): $(SERVER_OBJS)
 	@echo "Linking Server..."
 	$(CC) $(SERVER_OBJS) -o $@ $(LDFLAGS)
 	@echo "Build complete: $@"
 
-# Link the Benchmark (run 'make bench' to build this)
-bench: dirs $(BENCH_BIN)
+bench: all
+	./$(SERVER_BIN) -b 2> /dev/null
 
-$(BENCH_BIN): $(BENCH_OBJS)
-	@echo "Linking Benchmark..."
-	$(CC) $(BENCH_OBJS) -o $@ $(LDFLAGS)
-	@echo "Build complete: $@"
-
-# Compile Source Files into Objects
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 	@echo "Compiling $<..."
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Create necessary directories
 dirs:
 	@mkdir -p $(OBJ_DIR)
 	@mkdir -p $(BIN_DIR)
 
-# Clean up build artifacts
 clean:
 	@echo "Cleaning up..."
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
 
 help:
 	@echo "Available targets:"
-	@echo "  make        - Build the main WebSocket server"
-	@echo "  make bench  - Build the standalone benchmark tool"
-	@echo "  make clean  - Remove all build files"
-
-
+	@echo "  make        - Build server"
+	@echo "  make debug  - Build with DEBUG=1"
+	@echo "  make bench  - Build and run benchmark"
+	@echo "  make clean  - Remove build files"

@@ -54,5 +54,5 @@ typedef struct {
 void queue_init(job_queue_t *q);
 void queue_push(job_queue_t *q, gpu_job_t *job);
 gpu_job_t *queue_pop(job_queue_t *q);
-#endif // !_QUEUE_H
+#endif // _QUEUE_H
 

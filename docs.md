@@ -8,7 +8,7 @@ The system follows a client-server architecture where the heavy lifting (calcula
 
 ```mermaid
 graph TD
-    subgraph "Backend (C11)"
+    subgraph "Backend (C)"
        S[Server Socket] -->|Accept| C[Client Handler Thread]
         C -->|HTTP GET| W[Webserver Queue]
         W -->|Process| WS[Webserver Worker]
