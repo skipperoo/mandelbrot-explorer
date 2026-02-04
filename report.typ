@@ -65,6 +65,47 @@
 }
 
 
+// ######################## Document Setup ########################
+
+#set page("a4")
+#set par(justify: true)
+#set heading(numbering: (..nums) => {
+  if nums.pos().len() <= 3 {
+    numbering("1.1", ..nums)
+  }
+})
+
+
+#show heading.where(level: 1): it => {
+  if counter(heading).get().first() > 1 {
+    pagebreak()
+  }
+  it
+}
+
+// #show heading.where(level: 1): set text(size: 22pt, weight: "bold")
+// #show heading.where(level: 2): set text(size: 18pt, weight: "bold")
+// #show heading.where(level: 3): set text(size: 14pt, weight: "bold")
+// #show heading.where(level: 4): set text(size: 12pt, weight: "bold")
+// #show heading.where(level: 3): it => pad(left: -0.3em, it)
+#show heading.where(level: 4): it => pad(left: -0.3em, it)
+#align(center, text(17pt)[
+  *Advanced Programming*
+])
+#align(center)[
+  Leonardo Scoppitto \
+  February 2025
+]
+
+
+#pagebreak()
+#outline(depth: 3)
+#set page(numbering: none)
+#pagebreak()
+#counter(page).update(1)
+#set page(numbering: "1", number-align: center)
+
+
 
 = B09 - AI-Assisted Multithreaded Mandelbrot Viewer with Zoom, Export, and Path Animation Goal
 
@@ -77,7 +118,6 @@ Use AI to help design and implement a multithreaded Mandelbrot set viewer that s
 
 3. AI Usage & Verification Report: Collect and submit the prompts you used with AI and write a short report explaining how you evaluated and corrected the AI-generated code (thread-safety, performance, correctness of the math, and quality of exported images/animations).
 
-#pagebreak()
 
 
 = Design phase
@@ -151,7 +191,6 @@ I already had an idea on how I wanted to implement this project, here's a summar
 )
 
 
-#pagebreak()
 
 = Implementation
 
@@ -484,7 +523,7 @@ First, I attempted using #link("https://opencode.ai/")[Opencode] wired to a loca
 
 Before issuing any task to the agent, I took some time to wrap things up with the two main Gemini chats I used to create the foundations of the project to create a `docs.md` file with all the implementation decisions took and a `specs.md` file with all the constraints and requirements imposed by both the specification and me.
 
-I created a new specification file that outlined the new feature to be developed, specifying the function signature, the new environment variable to be used to enable GPU rendering and the regression and acceptance tests#footnote[Basically running the backend benchmark and then start the server and send some rendering requests using a python script.] that the agent should perform in order to decide whether the implementation was acceptable or not. The agent successfully completed these steps:
+I created a new specification file that outlined the new feature to be developed, specifying the function signature, the new environment variable to be used to enable GPU rendering and the regression and acceptance tests#footnote[Basically running the backend benchmark and then start the server and send some rendering requests using a python script.] that the agent should perform in order to decide whether the implementation was acceptable or not. For the first iteration I tried `Big Pickle`, a free model available in Opencode:
 
 #box(
   stroke: 1pt + black,
@@ -503,14 +542,34 @@ I created a new specification file that outlined the new feature to be developed
 [✓] Update Makefile to link OpenGL libraries
 [✓] Configure docker-compose.yml for GPU passthrough
 ```
+It successfully created the harness to make the function work, but the actual implementation used the scalar rendering even if it reported the successful implementation of GPU support:
 
-At the first iteration it created the harness to make the function work, but the actual implementation falls back to the scalar rendering, so i decided to hand the task over to gemini cli which is offered with the free premium account  
+#pretty_code()[
+  ```c
+  void render_opengl(uint16_t *buffer, int width, int start_row, int end_row,
+                    int max_iterations, double x_min, double y_min,
+                    double x_scale, double y_scale, RenderMode mode) {
 
-After a bit of back and forth directing the agent towards the solution, it finally make it work with opengl. Testing it with an intel and nvidia graphics, it works.
+    render_scalar(buffer, width, start_row, end_row,
+                  max_iterations, x_min, y_min, x_scale,
+                  y_scale);
 
-Now i tried to give him a spec file
+  }
+  ```
+]
 
-```
+Clearly, a free model could not compete with a pro model like Gemini, so I decided to hand the task to Gemini CLI, using the Gemini 3 Pro (high reasoning) to plan the steps needed to fix the code and make it support OpenGL and then I used Gemini 3 Flash (still high reasoning) to write the actual implementation, as it is faster and uses less tokens#footnote[The Unipi plan offers about 2M free tokens every 24 hours.].
+With a bit of back and forth, I managed to direct Gemini towards the solution analyzing the logs together.
+
+Now I wanted to get rid of Nginx, as the project just needs a very basic webserver that serves the HTML file (i.e. responds to basic GET requests). I created another `task.md` file (see appendix N). Gemini managed to build it in one shot as it is a fairly easy task, also handling corner cases and preventing traversal attempts as I instructed it to do in the specification.
+
+
+= Appendix 1: Code snippets and spec files
+
+== Webserver Task
+
+#pretty_code[
+  ```markdown
 ## 2. Next features
 
 As of now the project is composed by a frontend and a backend. The frontend is served by an nignx instance and consists in 3 static files:
@@ -519,13 +578,12 @@ As of now the project is composed by a frontend and a backend. The frontend is s
 - style.css
 
 Now we want to:
-- [x] implement a webserver in our backend.
-- [x] make the backend serve both the mandelbrot generation and the webpages, being aware to implement the basic security features such as avoid use after free, no buffer overflows and so on.
-- [x] the amount of requests is small so the webserver should run in its own thread with its own request queue.
-- [x] The page should be served from `/var/www` and the requests should not escape from that path.
+- [] implement a webserver in our backend.
+- [] make the backend serve both the mandelbrot generation and the webpages, being aware to implement the basic security features such as avoid use after free, no buffer overflows and so on.
+- [] the amount of requests is small so the webserver should run in its own thread with its own request queue.
+- [] The page should be served from `/var/www` and the requests should not escape from that path.
 
 A note on the backend project structure:
-
 
 .
 ├── benchmark.log <- ignore it
@@ -546,16 +604,11 @@ A note on the backend project structure:
 │  ├── websocket.c <- websocket handshake and send/recieve
 │  └── websocket_utils.c <- websocket  utils functions
 └── test_one_frame.py
-
 ```
 
-And it implemented all the features.
-Those have been reviewed using `git diff` and it successfully implemented a basic webserver to serve static files:
-- First it handles websockets, checking for a successful handshake
-  - No handshake -> check if it is a get request and in that case serve it
-  - It is an handshake -> render the request and send it back
+]
 
-= Appendix: Lesson learned and concepts
+= Appendix 2: Lesson learned and concepts
 
 == Websockets from scratch
 
@@ -583,7 +636,7 @@ The `src/webserver.c` implementation features:
 The Mandelbrot set is defined as the set of complex numbers $c$ for which the sequence $z_(n+) = z_n^2 + c$ (starting with $z_0 = 0$) does not diverge to infinity. Mathematically, if $|z_n| > 2$, the sequence is guaranteed to diverge. The "escape time" algorithm iterates this formula up to a maximum limit; the number of iterations reached determines the pixel's color.
 
 The algorithm is implemented in `src/mandelbrot.c`:
-- *Scalar Loop:* The `render_scalar` function implements the classic escape time algorithm. It uses the optimization $x^2 + y^2 \le 4.0$ to avoid expensive square root calculations.
+- *Scalar Loop:* The `render_scalar` function implements the classic escape time algorithm. It uses the optimization $x^2 + y^2 < 4.0$ to avoid expensive square root calculations.
 - *Algebraic Simplification:* The update rule is expanded to $x_("new") = x^2 - y^2 + x_0$ and $y_("new") = 2 x y + y_0$. By maintaining $x^2$ and $y^2$ as separate variables in the loop, the implementation minimizes the number of multiplication operations per iteration.
 
 === Threadpool Architecture
