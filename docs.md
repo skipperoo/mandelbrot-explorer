@@ -103,19 +103,25 @@ The web server runs in a dedicated thread with its own request queue (`webserver
 
 The project includes specific Docker configurations for different hardware backends.
 
-**1. Scalar/CPU Mode (Universal):**
+**Scalar Mode (Universal)**
 
 ```bash
 docker-compose -f docker-compose.scalar.yml up --build
 ```
 
-**2. AVX-512/SIMD Mode (Requires Intel CPU with AVX):**
+**Intel SIMD Mode (Requires AVX)**
+
+```bash
+docker-compose -f docker-compose.simd.yml up --build
+```
+
+**Intel GPU Mode**
 
 ```bash
 docker-compose -f docker-compose.intel.yml up --build
 ```
 
-**3. NVIDIA GPU Mode:**
+**NVIDIA GPU Mode (Requires NVIDIA Container Toolkit)**
 
 ```bash
 docker-compose -f docker-compose.nvidia.yml up --build

@@ -83,11 +83,6 @@
   it
 }
 
-// #show heading.where(level: 1): set text(size: 22pt, weight: "bold")
-// #show heading.where(level: 2): set text(size: 18pt, weight: "bold")
-// #show heading.where(level: 3): set text(size: 14pt, weight: "bold")
-// #show heading.where(level: 4): set text(size: 12pt, weight: "bold")
-// #show heading.where(level: 3): it => pad(left: -0.3em, it)
 #show heading.where(level: 4): it => pad(left: -0.3em, it)
 #align(center, text(17pt)[
   *Advanced Programming*
@@ -107,40 +102,49 @@
 
 
 
-= B09 - AI-Assisted Multithreaded Mandelbrot Viewer with Zoom, Export, and Path Animation Goal
+
+= Design phase
+
+The project I chose is _B09 - AI-Assisted Multithreaded Mandelbrot Viewer with Zoom, Export, and Path Animation Goal_.
+
+#rounded-box[
+```markdown
+# B09 - AI-Assisted Multithreaded Mandelbrot Viewer with Zoom, Export, and Path Animation Goal
 
 Use AI to help design and implement a multithreaded Mandelbrot set viewer that supports interactive zooming, image export, and animation along a user-defined path into the fractal (e.g. zoom flight), leveraging concurrency to render efficiently.
 
-== Tasks
+## Tasks
 1. Design & Implement: Use AI to assist in implementing the Mandelbrot renderer (coloring, iteration control) with multithreaded rendering, an interactive UI for panning/zooming, image export (e.g. PNG), and an animation feature that interpolates a path of viewpoints and generates frames or a video-like sequence.
 
 2. Test & Demonstrate: Demonstrate interactive usage (smooth zooming and navigation), validate correctness of the fractal rendering, measure/observe the impact of multithreading, and showcase at least one non-trivial animation path into the fractal.
 
 3. AI Usage & Verification Report: Collect and submit the prompts you used with AI and write a short report explaining how you evaluated and corrected the AI-generated code (thread-safety, performance, correctness of the math, and quality of exported images/animations).
-
-
-
-= Design phase
-
-I already had an idea on how I wanted to implement this project, here's a summary of the technical requirements (called rules for the LLMs).
-
-*Rule \#1*
-#pad(left: 1em)[
-  The first requirement is not to use third party libraries. One of the benefits of using AI to speedup development is that, for simple and non critical use cases (I would never reimplement something like OpenSSL) it is almost free to reinvent the wheel and avoid the dependency hell that plagues modern software development#footnote[https://en.wikipedia.org/wiki/Dependency_hell.].
+```
 ]
 
-*Rule \#2*
+I already had an idea on how I wanted to implement this project, here's a summary of the technical requirements that I imposed to the LLMs:
+
+
+*Requirement \#1*
 #pad(left: 1em)[
-  Implement the project using a client-server architecture to decouple the frontend and the backend
+  The first requirement is *not to use third party libraries*. One of the benefits of using AI to speedup development is that, for simple and non critical use casesit is almost free to reinvent the wheel#footnote[Of course core and critical libraries such as OpenSSL, complex protocol libraries or DB connectors are excluded from this argument.] and avoid the dependency hell that plagues modern software development#footnote[https://en.wikipedia.org/wiki/Dependency_hell.].
 ]
 
-*Rule \#3*
+*Requirement \#2*
+#pad(left: 1em)[
+  Implement the project using a client-server architecture to decouple the frontend and the backend.
+]
+
+*Requirement \#3*
 #pad(left: 1em)[
   For the frontend I decided to implement a minimal web app so that with one codebase I could target any device with a modern browser. To limit the boilerplate at the minimum I opted for plain HTML + JS + CSS instead of framework like React, which is suitable for more complex application with a complex state management.
 ]
-*Rule \#4*
+
+#pagebreak()
+
+*Requirement \#4*
 #pad(left: 1em)[
-  For the backend I wanted to be able to easily use SIMD instructions to speedup the rendering and to implement GPU rendering, so the candidates were C, C++, Rust and Zig. In Table 1 the evaluation points can be found. Ultimately, I opted for C because I worked with it professionally and because I prefer it for simple projects that require high performance and low level programming#footnote[And I don't like Rust :)].
+  For the backend I wanted to be able to easily use SIMD instructions to speedup the rendering and to implement GPU rendering, so the candidates were C, C++, Rust and Zig. In Table 1 I reported what I have considered when choosing the language. Ultimately, I opted for C because I worked with it professionally and because I prefer it for simple projects that require high performance and low level programming.
 ]
 
 #figure(
@@ -152,7 +156,7 @@ I already had an idea on how I wanted to implement this project, here's a summar
       - Simple
       - Well-known by LLMs
       - Stable SIMD support via `immintrin.h`
-      - OpenGL support
+      - Stable OpenGL library
     ], [
       - Manual memory management
       - Rudimental thread support
@@ -162,7 +166,7 @@ I already had an idea on how I wanted to implement this project, here's a summar
       - Well-known by LLMs
       - Support for promises and futures
       - Stable SIMD support via `immintrin.h`
-      - OpenGL support
+      - Stable OpenGL library
     ], [
       - Good for big enterprise projects, but unnecessary complex for smaller projects
     ],
@@ -173,8 +177,9 @@ I already had an idea on how I wanted to implement this project, here's a summar
       - Compiler hints help the LLMs (and agents) to iterate and fix the code faster
     ], [
       - SIMD support is still experimental
-      - Harder and more complex to write
-      - OpenGL needs `unsafe` blocks
+      - Harder and more complex to write and to review
+      - OpenGL wrappers need `unsafe` blocks
+      - I have limited experience with it
   ],
 
     [Zig], [
@@ -183,7 +188,7 @@ I already had an idea on how I wanted to implement this project, here's a summar
       - SIMD support out-of-the-box via `@Vector`
       - OpenGL support via `C` interop functionality
     ], [
-      - It is still a relatively new language, so I do not expect LLMs to be good at handling more complex tasks
+      - It is still a relatively new language, so I do not expect LLMs to be as good as they could be with a more mainstream language
       - I have zero experience with this language
   ],
   ),
@@ -198,6 +203,7 @@ I already had an idea on how I wanted to implement this project, here's a summar
 
 To structure the project and set the foundation of the renderer and the visualizer, I used *Gemini 3 Pro* since it is free to use with the `@unipi` account.
 
+#rounded-box[
 #pad(left: 5em)[
 #box(
   fill: gray.lighten(70%),
@@ -242,10 +248,10 @@ To structure the project and set the foundation of the renderer and the visualiz
   ]
 )
 ]
+]
 
 
-#line(length: 100%)
-
+#rounded-box[
 #pad(left: 5em)[
 #box(
   fill: gray.lighten(70%),
@@ -272,8 +278,6 @@ To structure the project and set the foundation of the renderer and the visualiz
   ]
 )
 ]
-
-#line(length: 100%)
 
 #pad(left: 5em)[
 #box(
@@ -303,8 +307,6 @@ To structure the project and set the foundation of the renderer and the visualiz
 ]
 
 
-#line(length: 100%)
-
 #pad(left: 5em)[
 #box(
   fill: gray.lighten(70%),
@@ -319,7 +321,6 @@ To structure the project and set the foundation of the renderer and the visualiz
 )
 ]
 
-
 #pad(right: 5em)[
 #box(
   fill: gray.lighten(80%),
@@ -332,8 +333,13 @@ To structure the project and set the foundation of the renderer and the visualiz
 )
 ]
 
-#line(length: 100%)
-At this point I started a new chat to prevent the LLM from hallucinating as it can happen with longer chats.
+]
+
+#pagebreak()
+
+At this point I started a new chat to prevent the LLM from hallucinating#footnote[It started deviating from the previous context using functions that didn't exist.] as it can happen with longer chats.
+
+#rounded-box[
 #pad(left: 5em)[
 #box(
   fill: gray.lighten(70%),
@@ -390,10 +396,9 @@ At this point I started a new chat to prevent the LLM from hallucinating as it c
   ]
 )
 ]
+]
 
-
-#line(length: 100%)
-Now that I have to test the whole architecture, I started a new chat asking for a simple `Makefile` to compile the project.
+#rounded-box[
 #pad(left: 5em)[
 #box(
   fill: gray.lighten(70%),
@@ -402,7 +407,7 @@ Now that I have to test the whole architecture, I started a new chat asking for 
   inset: 10pt,
   [
     #emph[
-      Can you create a makefile based on this structure to compile the backend?
+      Can you create a makefile based on this structure to compile the project?
       ```
       .
       ├── Makefile
@@ -437,10 +442,12 @@ Now that I have to test the whole architecture, I started a new chat asking for 
 
 )
 ]
+]
 
-=== First troubleshooting
+#pagebreak()
+== First troubleshooting
 
-The code, unexpectedly compiled right away and the frontend connected to the backend successfully, but the mandelbrot was not there and the backend crashed with a `segfault` a moment after the connection.
+The code, *unexpectedly* compiled right away and the frontend tried to connect to the backend, but the backend crashed with a `segfault` a moment after the connection.
 
 Inspecting the code manually revealed two problem:
 
@@ -478,22 +485,25 @@ void sha1(const unsigned char *data, size_t len, unsigned char *hash) {
     // ...
   }
   // ...
-  ```
+}
+```
 ]
 
-At this point, the core of the project is working and I can focus on details and new features.
+At this point, the core of the project is working as expected and I can focus on details and new features.
 
-== The agentic develop
+#pagebreak()
 
-Once the project worked as it should I took some time to review and audit the code:
+== AI agents, Opencode and Gemini CLI
+
+Once the project worked as it should, I took some time to review and audit the code:
 
 - Check for redundancies and unused code
 - Reduced the verbosity of some functions
 
-Then, I containerized the application with docker to easily build and test it with few commands and also provide a ready to use configuration via environment variables. The project is now made of two parts:
+Then, I containerized the application with docker to easily build and test it with few commands and have a stable reproducible test environment. So, I deployed:
 
-- The container running the backend
-- The container running Nginx to serve the frontend and proxy the requests to the backend
+- A container running the backend
+- A container running Nginx to serve the frontend and proxy the requests to the backend
 
 #pretty_code(label: "First docker-compose.yml")[
   ```yml
@@ -502,7 +512,7 @@ services:
     build: ./backend
     restart: unless-stopped
     environment:
-      - MANDELBROT_THREADS=12 # Same as logical cores
+      - MANDELBROT_THREADS=12 
       - MANDELBROT_SIMD=1 # Use AVX instructions set
     expose:
       - 8080
@@ -519,9 +529,9 @@ services:
 
 At this point, I had a reproducible environment to manually test the application and the instructions to let the agent build and run the application, so the next step was to initialize a git repository to track the changes made by the agent and create a new branch, which I named `feature/opengl-support` as I wanted to implement the support for rendering the mandelbrot using the GPU. I opted for OpenGL because is well supported by the C language via CHECK LIB NAME and it can target both the Intel and NVIDIA GPUs with just one implementation.
 
-First, I attempted using #link("https://opencode.ai/")[Opencode] wired to a local instance of qwen3:8b running on Ollama on one of my servers, but the GTX1070 with only 8Gb of VRAM was not enough to get a good development experience, resulting in an high waiting time before the first token and an output that was not on par with much larger models. Then I tried to connect my Gemini account on both Opencode and #link("https://geminicli.com/")[Gemini CLI], which worked flawlessly.
+First, I attempted using #link("https://opencode.ai/")[Opencode] wired to a local instance of `qwen3:8b` running on Ollama on one of my servers, but the GTX1070 with only 8Gb of VRAM was not enough to get a good development experience, resulting in an high waiting time before the first token and an output that was not on par with much larger models. Then I tried to connect my Gemini account to both Opencode and #link("https://geminicli.com/")[Gemini CLI], which worked flawlessly.
 
-Before issuing any task to the agent, I took some time to wrap things up with the two main Gemini chats I used to create the foundations of the project to create a `docs.md` file with all the implementation decisions took and a `specs.md` file with all the constraints and requirements imposed by both the specification and me.
+Before issuing any task to the agent, I took some time review the content of the two main Gemini chats I used to create the foundations of the project which has been summarized into `docs.md`.
 
 I created a new specification file that outlined the new feature to be developed, specifying the function signature, the new environment variable to be used to enable GPU rendering and the regression and acceptance tests#footnote[Basically running the backend benchmark and then start the server and send some rendering requests using a python script.] that the agent should perform in order to decide whether the implementation was acceptable or not. For the first iteration I tried `Big Pickle`, a free model available in Opencode:
 
@@ -530,7 +540,7 @@ I created a new specification file that outlined the new feature to be developed
   inset: 10pt,
   radius: 5pt,
   [
-  `> Please read` #text(blue.lighten(20%))[`@docs.md`] `and` #text(blue.lighten(20%))[`@specs.md`] `to get a context of what we're doing and then read` #text(blue.lighten(20%))[`@task.md`] `to implement the OpenGL support`
+  `> Please read` #text(blue.lighten(20%))[`@docs.md`] `to get a context of what we're doing and then read` #text(blue.lighten(20%))[`@task.md`] `to implement the OpenGL support`
 ]
 )
 
@@ -563,6 +573,24 @@ With a bit of back and forth, I managed to direct Gemini towards the solution an
 
 Now I wanted to get rid of Nginx, as the project just needs a very basic webserver that serves the HTML file (i.e. responds to basic GET requests). I created another `task.md` file (see appendix N). Gemini managed to build it in one shot as it is a fairly easy task, also handling corner cases and preventing traversal attempts as I instructed it to do in the specification.
 
+= Conclusion
+
+Before starting the project, I already knew a bit of all the technologies that I ended up using, but surely I wouldn't have been able to implement all these features in such a small amount of time.
+AI clearly helped me to deep dive into each aspect of the project where I wasn't so knowledgable#footnote[See Appendix 2 for a quick summary of what I learned implementing this project.] and also speeded up the implementation part, even when I could have been perfectly capable of writing the same code.
+
+Regarding the development experience, a distinction between chatbots and agents has to be made:
+- Going back and forth between the chat and the editor is useful in the researching phase as it is a more natural interface to interact with an LLM to brainstorm ideas, but it is not so good when you have to start implementing things seriously.
+- Using a coding agent, #underline[given that you provide extended and well written requirements], is extremely powerful, as it can accomplish much more that a chatbot. Moreover, if it can use well structured test and have access to verbose compilation logs, it can work for longer trying to fix bugs and implement features one after the other without human interaction.
+
+That said, while AI is undeniably one of the most powerful productivity tools when it comes to coding, a grain of salt is needed when using it:
+- Both chatbots and agents *need* human supervision, diligent code hygiene practices and a good versioning system, as subtle bugs can slip into the code at any time and things can break unexpectedly after the wrong prompt. I think its still crucial that each line produced must be audited and reviewed, even if solid tests are in place, making necessary to have constant review sessions, otherwise the amount of produced code can quickly become unmanageable. Some says that every line of code is both a cost and a liability, so we can say that AI creates liabilities at the speed of light.
+- Even if the developer is still the owner of the blueprint and the requirements, navigating the codebase becomes harder than before, as the implementation constantly evolves at high speed, which combined with what said above, poses two scenarios:
+  - The speed introduced by AI is bottlenecked by the review speed of humans
+  - The code is not fully audited and humans lose track of the codebase
+  Given the increasing amount of bugs I'm experiencing using digital devices, sadly, I think the second scenario is the one's winning.
+- In my opinion, while it democratizes knowledge and gives access to an infinite amount of resources, it makes the learning experience optional and less effective, as one could be tempted to get answers fast and go directly to the solutions without reasoning about things.
+
+To conclude, I think AI is a revolutionary technology, but, as of now, I think it is not ready to be widely adopted in production environments, except as an enhanced Google Search, especially for junior figures. On the other hand, I think that it shouldn't be used by younger students if not supervised or in a controlled manner, to avoid degrading the learning opportunities.
 
 = Appendix 1: Code snippets and spec files
 
