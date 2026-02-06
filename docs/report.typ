@@ -529,7 +529,7 @@ Mention that for SIMD we process 4 pixels at a time so the ideal speedup should 
 
 COMPARE EVERYTHING WITH THE SAME THREAD ARCHITECTURE AND THEN DO THE COMPARISON AND SHOW THAT THE IDEAL SCALEUP OF 4xSCALAR IS ALMOST THERE
 
-#let show_cpu_benchmark(no_pinning_data, pinning_data, caption) = {
+#let show_cpu_benchmark(no_pinning_data, pinning_data, caption, normalized: false) = {
   pagebreak()
   let counter = context { counter(figure.where(kind: "benchmark")).get().at(0)+1 }
   align(center)[
@@ -544,11 +544,11 @@ COMPARE EVERYTHING WITH THE SAME THREAD ARCHITECTURE AND THEN DO THE COMPARISON 
       grid(
         columns: (auto,)*2,
         column-gutter: 3em,
-      plot_cpu_performance(no_pinning_data),
-      plot_cpu_performance(pinning_data, y_axis: right),
+      if normalized {plot_cpu_performance_normalized(no_pinning_data)} else {plot_cpu_performance(no_pinning_data)},
+      if normalized {plot_cpu_performance_normalized(pinning_data)} else {plot_cpu_performance(pinning_data)},
       ),
-    table_cpu_performance(no_pinning_data),
-    table_cpu_performance(pinning_data, tp: true),
+      if normalized {table_cpu_performance_normalized(no_pinning_data)} else {table_cpu_performance(no_pinning_data)},
+      if normalized {table_cpu_performance_normalized(pinning_data, tp: true)} else {table_cpu_performance(pinning_data, tp: true)},
     ),
     supplement: [Benchmark],
     kind: "benchmark"
@@ -571,6 +571,7 @@ COMPARE EVERYTHING WITH THE SAME THREAD ARCHITECTURE AND THEN DO THE COMPARISON 
 #show_cpu_benchmark(benchmark_1, benchmark_1_TP, [Run with `ZOOM=1`])
 #show_cpu_benchmark(benchmark_5, benchmark_5_TP, [Run with `ZOOM=5`])
 
+#show_cpu_benchmark(benchmark_05, benchmark_05_TP, [Run with `ZOOM=0.5`. SIMD speedup uses the single thread scalar execution as the baseline], normalized: true)
 #pagebreak()
 #show_gpu_benchmark((benchmark_05,benchmark_1, benchmark_5), [GPU])
 

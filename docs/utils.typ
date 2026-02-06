@@ -377,7 +377,8 @@
   if "cpu" in data {
     for (key, y_values) in data.cpu {
       // Format label
-      let label_text = key.replace("res_", "").replace("_", " ").replace(" ", "x", count: 1)
+      let parts = key.split("_")
+      let label_text = parts.at(2) + "p " + smallcaps(parts.at(3))
       
       // LOGIC CHANGE:
       // 1. Get baseline (first element)
@@ -421,7 +422,8 @@
     *Threads*
     *(#smallcaps("TP"))*
   ]} else {[ *Threads* ]},) + cpu_keys.map(key => {
-    let label = key.replace("res_", "").replace("_", " ").replace(" ", "x", count: 1)
+      let parts = key.split("_")
+      let label = parts.at(2) + "p " + smallcaps(parts.at(3))
     [#label]
   })
 
@@ -477,7 +479,7 @@
   )
 }
 
-#let plot_cpu_performance(data, y_axis: left) = {
+#let plot_cpu_performance_normalized(data, y_axis: left) = {
   let title = data.at("title", default: [Speedup comparison]) 
   let width = data.at("width", default: 10cm)
   let height = data.at("height", default: 5cm)
@@ -498,7 +500,7 @@
       // LOGIC CHANGE: Format label to "540p scalar" etc.
       // key format: res_WIDTH_HEIGHT_TYPE (e.g., res_960_540_scalar)
       let parts = key.split("_")
-      let label_text = parts.at(2) + "p " + parts.at(3)
+      let label_text = parts.at(2) + "p " + smallcaps(parts.at(3))
       
       // 1. Get baseline: Always use the SCALAR value at index 0 for this resolution
       let scalar_key = key.replace("simd", "scalar")
@@ -530,7 +532,7 @@
   )
 }
 
-#let table_cpu_performance(data, tp: false) = {
+#let table_cpu_performance_normalized(data, tp: false) = {
   // 1. Extract keys and thread counts
   let cpu_keys = if "cpu" in data { data.cpu.keys() } else { () }
   
@@ -544,7 +546,7 @@
     *(#smallcaps("TP"))*
   ]} else {[ *Threads* ]},) + cpu_keys.map(key => {
     let parts = key.split("_")
-    let label = parts.at(2) + "p " + parts.at(3)
+    let label = parts.at(2) + "p " + smallcaps(parts.at(3))
     [#label]
   })
 
