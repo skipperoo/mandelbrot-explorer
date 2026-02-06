@@ -125,5 +125,49 @@ fig.update_layout(
     legend_title_text="Configuration"
 )
 
-fig.show()
-fig.write_html(f"{sys.argv[1][:sys.argv[1].index(".")]}.html")
+# fig.show()
+# fig.write_html(f"{sys.argv[1][:sys.argv[1].index(".")]}.html")
+
+# 1. Extract Unique Threads (Sorted)
+threads = sorted(df["Threads"].unique().tolist())
+
+# 2. Group CPU Data
+cpu_entries = []
+for label in label_order:
+    subset = df[df["Label"] == label]
+    if not subset.empty:
+        # Cast each value to a native float() to strip np.float64 wrappers
+        fps_list = [
+            float(subset[subset["Threads"] == t]["FPS"].iloc[0])
+            if t in subset["Threads"].values else 0.0 
+            for t in threads
+        ]
+        typst_key = label.replace(" - ", "_").replace("x", "_").lower()
+        cpu_entries.append(f"    res_{typst_key}: {tuple(fps_list)},")
+
+# 3. Group GPU Data
+gpu_entries = []
+for gpu_entry in gpu_data_sorted:
+    res = gpu_entry["Resolution"]
+    algo = gpu_entry["Type"]
+    # Explicitly cast to float
+    fps = float(gpu_entry["FPS"])
+    typst_key = f"res_{res}_{algo}".replace(" ", "_").replace("x", "_").lower()
+    gpu_entries.append(f"    {typst_key}: {fps},")
+
+# 4. Construct the Final Typst String
+typst_dict = f"""#let {sys.argv[1].replace('.log', '')} = (
+  threads: {tuple(threads)},
+  cpu: (
+{chr(10).join(cpu_entries)}
+  ),
+  gpu: (
+{chr(10).join(gpu_entries)}
+  ),
+  ylim: {float(df["FPS"].max() * 1.1):.2f},
+  width: 10cm,
+  height: 8cm,
+  title: [*Benchmark Performance*],
+)"""
+
+print(typst_dict)

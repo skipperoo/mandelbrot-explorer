@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "tpool.h"
+#include "queue.h"
 #include "common.h"
 // ==========================================
 // BENCHMARK CONFIGURATION
@@ -20,7 +22,9 @@
 
 #define CENTER_X  -0.743643887037158704752191506114774
 #define CENTER_Y  0.131825904205311970493132056385139
-#define ZOOM  5
+#ifndef ZOOM
+#define ZOOM  0.5
+#endif
 
 // END CONFIGURATION
 

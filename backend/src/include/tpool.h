@@ -1,9 +1,15 @@
 #ifndef TPOOL_H
 #define TPOOL_H
-
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif // !_GNU_SOURCE
 #include <pthread.h>
+#include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
 
 typedef struct {
   void (*function)(void *);
@@ -61,7 +67,7 @@ static void *thread_worker(void *pool_ptr) {
       pthread_cond_wait(&pool->notify, &pool->lock);
     }
 
-    if (pool->shutdown) {
+    if (pool->shutdown && pool->count == 0) {
       pthread_mutex_unlock(&pool->lock);
       break;
     }

@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wextra -O3 -ffast-math -march=native -pthread -I src/include
 LDFLAGS = -lm -pthread -lGL -lEGL
-
+BENCHFLAGS = 
 SRC_DIR = src
 OBJ_DIR = obj
 BIN_DIR = bin
@@ -38,7 +38,7 @@ bench: all
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 	@echo "Compiling $<..."
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(BENCHFLAGS) -c $< -o $@
 
 dirs:
 	@mkdir -p $(OBJ_DIR)

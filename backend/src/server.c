@@ -174,8 +174,7 @@ void *handle_client(void *arg) {
       pthread_cond_destroy(&job.cond);
 
     } else {
-      // CPU mode: Split the image into slices and dispatch to the thread pool
-      int num_slices = num_workers * 16;
+      int num_slices = num_workers * 8;
       frame_barrier_t barrier;
       barrier_init(&barrier, num_slices);
 
@@ -298,13 +297,14 @@ int main(int argc, char *argv[]) {
   if (benchmark) {
     double base_width = 960.0;
     double base_height = 540.0;
+    /*
     for (int scale = 1; scale <= 4; scale *= 2) {
       double width = base_width * scale;
       double height = base_height * scale;
       uint16_t *buffer =
           (uint16_t *)aligned_alloc(64, width * height * sizeof(uint16_t));
 
-      for (int i = 2; i <= get_nprocs(); i += 2) {
+      for (int i = 1; i <= get_nprocs(); i += 2) {
         printf("######### Benchmark (%.0lfx%.0lf) with %d threads #########\n",
                width, height, i);
         memset(buffer, 0, width * height * sizeof(uint16_t));
@@ -312,11 +312,15 @@ int main(int argc, char *argv[]) {
         memset(buffer, 0, width * height * sizeof(uint16_t));
         run_benchmark("SIMD", i, AVX, width, height, buffer);
         printf("######### ###################################\n");
+        // This trick make the benchmark run with 1 thread then 0 -> 2
+        if (i == 1)
+          i = 0;
       }
       free(buffer);
     }
     base_width = 960.0;
     base_height = 540.0;
+  */
     for (int scale = 1; scale <= 4; scale *= 2) {
       double width = base_width * scale;
       double height = base_height * scale;

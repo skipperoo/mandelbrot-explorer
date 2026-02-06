@@ -1,0 +1,97 @@
+./bin/server -b 2> /dev/null
+######### Benchmark (960x540) with 1 threads #########
+[Scalar] Time: 0.4597 seconds | FPS: 2.18
+[SIMD] Time: 0.1217 seconds | FPS: 8.22
+######### ###################################
+######### Benchmark (960x540) with 2 threads #########
+[Scalar] Time: 0.2241 seconds | FPS: 4.46
+[SIMD] Time: 0.0624 seconds | FPS: 16.02
+######### ###################################
+######### Benchmark (960x540) with 4 threads #########
+[Scalar] Time: 0.1200 seconds | FPS: 8.33
+[SIMD] Time: 0.0401 seconds | FPS: 24.95
+######### ###################################
+######### Benchmark (960x540) with 6 threads #########
+[Scalar] Time: 0.1015 seconds | FPS: 9.86
+[SIMD] Time: 0.0277 seconds | FPS: 36.12
+######### ###################################
+######### Benchmark (960x540) with 8 threads #########
+[Scalar] Time: 0.0652 seconds | FPS: 15.34
+[SIMD] Time: 0.0185 seconds | FPS: 53.92
+######### ###################################
+######### Benchmark (960x540) with 10 threads #########
+[Scalar] Time: 0.0556 seconds | FPS: 17.98
+[SIMD] Time: 0.0161 seconds | FPS: 62.06
+######### ###################################
+######### Benchmark (960x540) with 12 threads #########
+[Scalar] Time: 0.0567 seconds | FPS: 17.63
+[SIMD] Time: 0.0136 seconds | FPS: 73.60
+######### ###################################
+######### Benchmark (1920x1080) with 1 threads #########
+[Scalar] Time: 1.6837 seconds | FPS: 0.59
+[SIMD] Time: 0.4925 seconds | FPS: 2.03
+######### ###################################
+######### Benchmark (1920x1080) with 2 threads #########
+[Scalar] Time: 0.9103 seconds | FPS: 1.10
+[SIMD] Time: 0.2525 seconds | FPS: 3.96
+######### ###################################
+######### Benchmark (1920x1080) with 4 threads #########
+[Scalar] Time: 0.4755 seconds | FPS: 2.10
+[SIMD] Time: 0.1428 seconds | FPS: 7.00
+######### ###################################
+######### Benchmark (1920x1080) with 6 threads #########
+[Scalar] Time: 0.3238 seconds | FPS: 3.09
+[SIMD] Time: 0.0982 seconds | FPS: 10.18
+######### ###################################
+######### Benchmark (1920x1080) with 8 threads #########
+[Scalar] Time: 0.2600 seconds | FPS: 3.85
+[SIMD] Time: 0.0755 seconds | FPS: 13.25
+######### ###################################
+######### Benchmark (1920x1080) with 10 threads #########
+[Scalar] Time: 0.2209 seconds | FPS: 4.53
+[SIMD] Time: 0.0649 seconds | FPS: 15.42
+######### ###################################
+######### Benchmark (1920x1080) with 12 threads #########
+[Scalar] Time: 0.1851 seconds | FPS: 5.40
+[SIMD] Time: 0.0563 seconds | FPS: 17.76
+######### ###################################
+######### Benchmark (3840x2160) with 1 threads #########
+[Scalar] Time: 6.6748 seconds | FPS: 0.15
+[SIMD] Time: 1.8851 seconds | FPS: 0.53
+######### ###################################
+######### Benchmark (3840x2160) with 2 threads #########
+[Scalar] Time: 3.6245 seconds | FPS: 0.28
+[SIMD] Time: 1.0069 seconds | FPS: 0.99
+######### ###################################
+######### Benchmark (3840x2160) with 4 threads #########
+[Scalar] Time: 1.9170 seconds | FPS: 0.52
+[SIMD] Time: 0.5485 seconds | FPS: 1.82
+######### ###################################
+######### Benchmark (3840x2160) with 6 threads #########
+[Scalar] Time: 1.3285 seconds | FPS: 0.75
+[SIMD] Time: 0.3877 seconds | FPS: 2.58
+######### ###################################
+######### Benchmark (3840x2160) with 8 threads #########
+[Scalar] Time: 1.0473 seconds | FPS: 0.95
+[SIMD] Time: 0.3023 seconds | FPS: 3.31
+######### ###################################
+######### Benchmark (3840x2160) with 10 threads #########
+[Scalar] Time: 0.8832 seconds | FPS: 1.13
+[SIMD] Time: 0.2651 seconds | FPS: 3.77
+######### ###################################
+######### Benchmark (3840x2160) with 12 threads #########
+[Scalar] Time: 0.7307 seconds | FPS: 1.37
+[SIMD] Time: 0.2219 seconds | FPS: 4.51
+######### ###################################
+######### GPU Benchmark (960x540) #########
+[Intel GPU] Time: 0.1709 seconds | FPS: 5.85
+[NVIDIA GPU] Time: 0.0102 seconds | FPS: 97.66
+######### ###################################
+######### GPU Benchmark (1920x1080) #########
+[Intel GPU] Time: 0.0451 seconds | FPS: 22.16
+[NVIDIA GPU] Time: 0.0146 seconds | FPS: 68.51
+######### ###################################
+######### GPU Benchmark (3840x2160) #########
+[Intel GPU] Time: 0.0894 seconds | FPS: 11.19
+[NVIDIA GPU] Time: 0.0485 seconds | FPS: 20.61
+######### ###################################

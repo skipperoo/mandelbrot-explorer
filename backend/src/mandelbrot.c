@@ -385,7 +385,7 @@ void render_opengl_frame(uint16_t *buffer, int width, int start_row,
   size_t num_pixels = width * rows;
   size_t gpu_data_size_bytes = num_pixels * sizeof(uint32_t);
 
-  // 2. Resize GPU SSBO if necessary and Use Persistent Mapping
+  // Use Persistent Mapping
   if (gpu_data_size_bytes > gl_ssbo_size || !gl_mapped_buffer) {
     if (gl_mapped_buffer) {
       glBindBuffer_ptr(GL_SHADER_STORAGE_BUFFER, gl_ssbo);
@@ -559,7 +559,6 @@ void setup_opengl_resources() {
   glGetUniformLocation_ptr =
       (PFNGLGETUNIFORMLOCATIONPROC)eglGetProcAddress("glGetUniformLocation");
 
-  // 2. Compile Shader (Code from your original init_opengl_internal)
   GLuint shader = glCreateShader_ptr(GL_COMPUTE_SHADER);
   glShaderSource_ptr(shader, 1, &compute_shader_source, NULL);
   glCompileShader_ptr(shader);
@@ -587,7 +586,6 @@ void setup_opengl_resources() {
   loc_is_deep_zoom = glGetUniformLocation_ptr(gl_program, "is_deep_zoom");
 }
 
-// RENAMED & EXPOSED: Was init_opengl, now init_opengl_for_vendor
 int init_opengl_for_vendor(const char *target_vendor) {
   if (strstr(current_gpu_vendor, target_vendor) != NULL) {
     return 1;
@@ -744,19 +742,27 @@ unlock_gl_mutex:
 // THREAD WRAPPERS
 // ==========================================
 
-void *thread_scalar(void *arg) {
-  ThreadData *data = (ThreadData *)arg;
-  render_scalar(data->buffer, data->width, data->start_row, data->end_row,
-                MAX_ITER, data->x_min, data->y_min, data->x_scale,
-                data->y_scale);
-  return NULL;
-}
+void render_slice_benchmark(void *arg) {
+  render_job_t *job = (render_job_t *)arg;
 
-void *thread_avx(void *arg) {
-  ThreadData *data = (ThreadData *)arg;
-  render_simd(data->buffer, data->width, data->start_row, data->end_row,
-              MAX_ITER, data->x_min, data->y_min, data->x_scale, data->y_scale);
-  return NULL;
+  if (job->mode == SCALAR) {
+    render_scalar(job->buffer, job->width, job->start_row, job->end_row,
+                  job->iterations, job->x_min, job->y_min, job->x_scale,
+                  job->y_scale);
+  } else {
+    render_simd(job->buffer, job->width, job->start_row, job->end_row,
+                job->iterations, job->x_min, job->y_min, job->x_scale,
+                job->y_scale);
+  }
+
+  pthread_mutex_lock(&job->barrier->mutex);
+  job->barrier->tasks_remaining--;
+  if (job->barrier->tasks_remaining == 0) {
+    pthread_cond_signal(&job->barrier->cond);
+  }
+  pthread_mutex_unlock(&job->barrier->mutex);
+
+  free(job);
 }
 
 // ==========================================
@@ -771,6 +777,12 @@ double get_time() {
 
 void run_benchmark(const char *name, int threads, RenderMode mode, double width,
                    double height, uint16_t *buffer) {
+  tpool_t *pool = NULL;
+  if (mode != INTEL_GPU && mode != NVIDIA_GPU) {
+    // We use a large enough queue size
+    pool = tpool_create(threads, threads * 32);
+  }
+
   double start_time = get_time();
   double end_time = 0;
 
@@ -783,46 +795,48 @@ void run_benchmark(const char *name, int threads, RenderMode mode, double width,
   double x_scale = target_width / width;
   double y_scale = target_height / height;
 
-  pthread_t thread_ids[threads];
-  ThreadData t_data[threads];
-
-  int rows_per_thread = height / threads;
   if (mode == INTEL_GPU || mode == NVIDIA_GPU) {
     render_opengl(buffer, width, 0, height, MAX_ITER, x_min, y_min, x_scale,
                   y_scale, mode);
     goto bench_done;
   }
 
-  for (int i = 0; i < threads; i++) {
-    t_data[i].buffer = buffer;
-    t_data[i].width = width;
-    t_data[i].height = height;
-    t_data[i].start_row = i * rows_per_thread;
-    t_data[i].end_row = (i == threads - 1) ? height : (i + 1) * rows_per_thread;
-    t_data[i].x_min = x_min;
-    t_data[i].y_min = y_min;
-    t_data[i].x_scale = x_scale;
-    t_data[i].y_scale = y_scale;
+  // CPU mode: Split the image into slices and dispatch to the thread pool
+  int num_slices = threads * 8;
+  frame_barrier_t barrier;
+  barrier_init(&barrier, num_slices);
 
-    switch (mode) {
-    case SCALAR:
-      pthread_create(&thread_ids[i], NULL, thread_scalar, &t_data[i]);
-      break;
-    case AVX:
-      pthread_create(&thread_ids[i], NULL, thread_avx, &t_data[i]);
-      break;
-    default:
-      break;
-    }
+  int rows_per_slice = height / num_slices;
+
+  for (int i = 0; i < num_slices; i++) {
+    int start = i * rows_per_slice;
+    int end = (i == num_slices - 1) ? (int)height : (i + 1) * rows_per_slice;
+
+    render_job_t *job = malloc(sizeof(render_job_t));
+    job->buffer = buffer;
+    job->width = (int)width;
+    job->start_row = start;
+    job->end_row = end;
+    job->iterations = MAX_ITER;
+    job->x_min = x_min;
+    job->y_min = y_min;
+    job->x_scale = x_scale;
+    job->y_scale = y_scale;
+    job->barrier = &barrier;
+    job->mode = mode;
+
+    tpool_add_work(pool, render_slice_benchmark, job);
   }
 
-  for (int i = 0; i < threads; i++) {
-    pthread_join(thread_ids[i], NULL);
-  }
+  // Wait for all slices to complete
+  barrier_wait(&barrier);
 
 bench_done:
 
   end_time = get_time();
   printf("[%s] Time: %.4f seconds | FPS: %.2f\n", name, end_time - start_time,
          1.0 / (end_time - start_time));
+  if (pool) {
+    tpool_shutdown(pool);
+  }
 }

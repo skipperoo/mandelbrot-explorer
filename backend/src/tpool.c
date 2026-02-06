@@ -10,12 +10,27 @@ tpool_t *tpool_create(int num_threads, int max_queue_size) {
   pool->shutdown = 0;
   pool->queue = (thread_task_t *)malloc(sizeof(thread_task_t) * max_queue_size);
   pool->threads = (pthread_t *)malloc(sizeof(pthread_t) * num_threads);
-
+  long num_cores = sysconf(_SC_NPROCESSORS_ONLN);
+  if (num_cores < 1)
+    num_cores = 1;
   pthread_mutex_init(&pool->lock, NULL);
   pthread_cond_init(&pool->notify, NULL);
 
   for (int i = 0; i < num_threads; i++) {
     pthread_create(&(pool->threads[i]), NULL, thread_worker, (void *)pool);
+#ifdef THREAD_PINNING
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    int core_id = i % num_cores;
+    CPU_SET(i, &cpuset);
+
+    int rc =
+        pthread_setaffinity_np(pool->threads[i], sizeof(cpu_set_t), &cpuset);
+    if (rc != 0) {
+      fprintf(stderr, "Failed to pin thread %d to core %d: %s\n", i, core_id,
+              strerror(rc));
+    }
+#endif /* ifdef THREAD_PINNING */
   }
 
   return pool;
@@ -34,11 +49,6 @@ void tpool_shutdown(tpool_t *pool) {
   }
 
   // Once the thread exited, we can cleanup the resources
-  for (int i = 0; i < pool->queue_size; i++) {
-    if (pool->queue->argument) {
-      free(pool->queue->argument);
-    }
-  }
   free(pool->queue);
   free(pool->threads);
   free(pool);

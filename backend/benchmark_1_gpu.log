@@ -1,0 +1,120 @@
+######### GPU Benchmark (960x540) #########
+[Intel GPU] Time: 0.2086 seconds | FPS: 4.79
+[NVIDIA GPU] Time: 0.0173 seconds | FPS: 57.77
+######### ###################################
+######### GPU Benchmark (1920x1080) #########
+[Intel GPU] Time: 0.0662 seconds | FPS: 15.10
+[NVIDIA GPU] Time: 0.0166 seconds | FPS: 60.10
+######### ###################################
+######### GPU Benchmark (3840x2160) #########
+[Intel GPU] Time: 0.1399 seconds | FPS: 7.15
+[NVIDIA GPU] Time: 0.0486 seconds | FPS: 20.58
+######### ###################################
+######### GPU Benchmark (960x540) #########
+[Intel GPU] Time: 0.1228 seconds | FPS: 8.14
+[NVIDIA GPU] Time: 0.0163 seconds | FPS: 61.44
+######### ###################################
+######### GPU Benchmark (1920x1080) #########
+[Intel GPU] Time: 0.0558 seconds | FPS: 17.94
+[NVIDIA GPU] Time: 0.0166 seconds | FPS: 60.41
+######### ###################################
+######### GPU Benchmark (3840x2160) #########
+[Intel GPU] Time: 0.1281 seconds | FPS: 7.80
+[NVIDIA GPU] Time: 0.0441 seconds | FPS: 22.70
+######### ###################################
+######### GPU Benchmark (960x540) #########
+[Intel GPU] Time: 0.1272 seconds | FPS: 7.86
+[NVIDIA GPU] Time: 0.0157 seconds | FPS: 63.55
+######### ###################################
+######### GPU Benchmark (1920x1080) #########
+[Intel GPU] Time: 0.0538 seconds | FPS: 18.60
+[NVIDIA GPU] Time: 0.0161 seconds | FPS: 62.13
+######### ###################################
+######### GPU Benchmark (3840x2160) #########
+[Intel GPU] Time: 0.1242 seconds | FPS: 8.05
+[NVIDIA GPU] Time: 0.0433 seconds | FPS: 23.10
+######### ###################################
+######### GPU Benchmark (960x540) #########
+[Intel GPU] Time: 0.1288 seconds | FPS: 7.77
+[NVIDIA GPU] Time: 0.0162 seconds | FPS: 61.83
+######### ###################################
+######### GPU Benchmark (1920x1080) #########
+[Intel GPU] Time: 0.0559 seconds | FPS: 17.88
+[NVIDIA GPU] Time: 0.0158 seconds | FPS: 63.12
+######### ###################################
+######### GPU Benchmark (3840x2160) #########
+[Intel GPU] Time: 0.1276 seconds | FPS: 7.84
+[NVIDIA GPU] Time: 0.0441 seconds | FPS: 22.66
+######### ###################################
+######### GPU Benchmark (960x540) #########
+[Intel GPU] Time: 0.1262 seconds | FPS: 7.93
+[NVIDIA GPU] Time: 0.0169 seconds | FPS: 59.08
+######### ###################################
+######### GPU Benchmark (1920x1080) #########
+[Intel GPU] Time: 0.0577 seconds | FPS: 17.33
+[NVIDIA GPU] Time: 0.0157 seconds | FPS: 63.86
+######### ###################################
+######### GPU Benchmark (3840x2160) #########
+[Intel GPU] Time: 0.1266 seconds | FPS: 7.90
+[NVIDIA GPU] Time: 0.0441 seconds | FPS: 22.65
+######### ###################################
+######### GPU Benchmark (960x540) #########
+[Intel GPU] Time: 0.1270 seconds | FPS: 7.87
+[NVIDIA GPU] Time: 0.0156 seconds | FPS: 63.98
+######### ###################################
+######### GPU Benchmark (1920x1080) #########
+[Intel GPU] Time: 0.0688 seconds | FPS: 14.53
+[NVIDIA GPU] Time: 0.0168 seconds | FPS: 59.35
+######### ###################################
+######### GPU Benchmark (3840x2160) #########
+[Intel GPU] Time: 0.1281 seconds | FPS: 7.81
+[NVIDIA GPU] Time: 0.0446 seconds | FPS: 22.43
+######### ###################################
+######### GPU Benchmark (960x540) #########
+[Intel GPU] Time: 0.1287 seconds | FPS: 7.77
+[NVIDIA GPU] Time: 0.0151 seconds | FPS: 66.26
+######### ###################################
+######### GPU Benchmark (1920x1080) #########
+[Intel GPU] Time: 0.0545 seconds | FPS: 18.33
+[NVIDIA GPU] Time: 0.0162 seconds | FPS: 61.77
+######### ###################################
+######### GPU Benchmark (3840x2160) #########
+[Intel GPU] Time: 0.1304 seconds | FPS: 7.67
+[NVIDIA GPU] Time: 0.0436 seconds | FPS: 22.94
+######### ###################################
+######### GPU Benchmark (960x540) #########
+[Intel GPU] Time: 0.1283 seconds | FPS: 7.79
+[NVIDIA GPU] Time: 0.0159 seconds | FPS: 62.94
+######### ###################################
+######### GPU Benchmark (1920x1080) #########
+[Intel GPU] Time: 0.0701 seconds | FPS: 14.26
+[NVIDIA GPU] Time: 0.0170 seconds | FPS: 58.97
+######### ###################################
+######### GPU Benchmark (3840x2160) #########
+[Intel GPU] Time: 0.1277 seconds | FPS: 7.83
+[NVIDIA GPU] Time: 0.0434 seconds | FPS: 23.06
+######### ###################################
+######### GPU Benchmark (960x540) #########
+[Intel GPU] Time: 0.1213 seconds | FPS: 8.25
+[NVIDIA GPU] Time: 0.0154 seconds | FPS: 64.73
+######### ###################################
+######### GPU Benchmark (1920x1080) #########
+[Intel GPU] Time: 0.0546 seconds | FPS: 18.30
+[NVIDIA GPU] Time: 0.0156 seconds | FPS: 63.94
+######### ###################################
+######### GPU Benchmark (3840x2160) #########
+[Intel GPU] Time: 0.1280 seconds | FPS: 7.81
+[NVIDIA GPU] Time: 0.0434 seconds | FPS: 23.03
+######### ###################################
+######### GPU Benchmark (960x540) #########
+[Intel GPU] Time: 0.1331 seconds | FPS: 7.51
+[NVIDIA GPU] Time: 0.0160 seconds | FPS: 62.49
+######### ###################################
+######### GPU Benchmark (1920x1080) #########
+[Intel GPU] Time: 0.0572 seconds | FPS: 17.48
+[NVIDIA GPU] Time: 0.0161 seconds | FPS: 62.07
+######### ###################################
+######### GPU Benchmark (3840x2160) #########
+[Intel GPU] Time: 0.1268 seconds | FPS: 7.89
+[NVIDIA GPU] Time: 0.0438 seconds | FPS: 22.83
+######### ###################################
