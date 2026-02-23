@@ -297,7 +297,6 @@ int main(int argc, char *argv[]) {
   if (benchmark) {
     double base_width = 960.0;
     double base_height = 540.0;
-    /*
     for (int scale = 1; scale <= 4; scale *= 2) {
       double width = base_width * scale;
       double height = base_height * scale;
@@ -320,7 +319,6 @@ int main(int argc, char *argv[]) {
     }
     base_width = 960.0;
     base_height = 540.0;
-  */
     for (int scale = 1; scale <= 4; scale *= 2) {
       double width = base_width * scale;
       double height = base_height * scale;

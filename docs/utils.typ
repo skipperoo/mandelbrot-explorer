@@ -471,7 +471,7 @@
 
   // 5. Render the Table
   table(
-    columns: 1 + cpu_keys.len(),
+    columns: (5.5em,) * (1 + cpu_keys.len()),
     align: (col, row) => center + horizon,
     fill: (col, row) => if row == 0 { gray.lighten(60%) } else { none },
     inset: 5pt,
@@ -550,6 +550,7 @@
     [#label]
   })
 
+
   // 3. Pre-calculate Column Maximums (based on Scalar Baseline Speedup)
   let col_maxes = (:)
   for k in cpu_keys {
@@ -599,7 +600,151 @@
 
   // 5. Render the Table
   table(
-    columns: 1 + cpu_keys.len(),
+    columns: (5.5em,) * (1 + cpu_keys.len()),
+    align: (col, row) => center + horizon,
+    fill: (col, row) => if row == 0 { gray.lighten(60%) } else { none },
+    inset: 5pt,
+    ..table_content
+  )
+}
+
+#let plot_simd_vs_scalar_efficiency(data, y_axis: left) = {
+  let title = data.at("title", default: [SIMD Efficiency (Ratio)]) 
+  let width = data.at("width", default: 10cm)
+  let height = data.at("height", default: 5cm)
+  let ylim = 6 // SIMD usually provides 4x-8x speedup, 6 is a safe ceiling for doubles
+  
+  // 1. Slice threads to remove the first element
+  let t_subset = data.threads.slice(1)
+  
+  let plots = ()
+
+  plots.push(lq.plot((0, 14), (4,4), label: [Ideal], stroke: (paint: gray, thickness: 1.5pt ,dash: "dashed")))
+
+  // 2. Loop through CPU benchmarks to find pairs
+  if "cpu" in data {
+    // We need to identify unique resolutions first to process pairs
+    let processed_resolutions = ()
+
+    for (key, val) in data.cpu {
+      if "scalar" in key {
+         let scalar_key = key
+         let simd_key = key.replace("scalar", "simd")
+         
+         // Ensure both exist
+         if simd_key in data.cpu {
+            let parts = key.split("_")
+            // Label: "540p" (Since this line represents the relationship between SIMD/Scalar)
+            let label_text = parts.at(2) + "p"
+            
+            let scalar_values = data.cpu.at(scalar_key)
+            let simd_values = data.cpu.at(simd_key)
+
+            // Logic: Calculate Ratio (SIMD / Scalar) for the sliced subset
+            // Math: (SIMD_Norm / Scalar_Norm) simplifies to (SIMD_Raw / Scalar_Raw)
+            let ratio_values = ()
+            
+            // Iterate through the sliced indices (1 to end)
+            for i in range(1, scalar_values.len()) {
+               let s = scalar_values.at(i)
+               let v = simd_values.at(i)
+               // Avoid division by zero if benchmark failed
+               if s != 0 { ratio_values.push(v / s) } else { ratio_values.push(0) }
+            }
+
+            plots.push(lq.plot(
+              t_subset, 
+              ratio_values, 
+              label: label_text
+            ))
+         }
+      }
+    }
+  }
+
+  // Render the diagram
+  lq.diagram(
+      legend: (position: top + left),
+      title: title,
+      width: width,
+      height: height,
+      xlabel: "Threads", 
+      ylabel: "Efficiency Ratio (x)", 
+      yaxis: (position: y_axis),
+      xlim: (0, 14),
+      ylim: (0, ylim),
+      ..plots 
+  )
+}
+
+#let table_simd_vs_scalar_efficiency(data, tp: false) = {
+  // 1. Identify Resolution Keys (only unique resolutions)
+  let resolutions = ()
+  if "cpu" in data {
+    for k in data.cpu.keys() {
+      if "scalar" in k {
+        resolutions.push(k) // Keep the full scalar key as the identifier
+      }
+    }
+  }
+  
+  // Slice threads to skip the first one
+  let threads = data.threads.slice(1)
+
+  // 2. Format Headers
+  let header_cells = (if (tp) { [
+    *Threads*
+    *(#smallcaps("TP"))*
+  ]} else {[ *Threads* ]},) + resolutions.map(key => {
+    let parts = key.split("_")
+    let label = parts.at(2) + "p"
+    [#label]
+  })
+
+  // 3. Pre-calculate Column Maximums
+  let col_maxes = (:)
+  for k in resolutions {
+    let scalar_vals = data.cpu.at(k)
+    let simd_vals = data.cpu.at(k.replace("scalar", "simd"))
+    
+    let ratios = ()
+    for i in range(1, scalar_vals.len()) {
+       ratios.push(simd_vals.at(i) / scalar_vals.at(i))
+    }
+    col_maxes.insert(k, calc.max(..ratios))
+  }
+
+  // 4. Build Table Content
+  let table_content = ()
+  
+  table_content += header_cells
+
+  // Loop through the SLICED threads
+  for (i, t) in threads.enumerate() {
+    
+    // Column 1: The thread number
+    table_content.push(str(t))
+
+    // Iterate through resolutions (columns)
+    for k in resolutions {
+      let scalar_vals = data.cpu.at(k)
+      let simd_vals = data.cpu.at(k.replace("scalar", "simd"))
+      
+      // Calculate Ratio at index i+1
+      let val = simd_vals.at(i + 1) / scalar_vals.at(i + 1)
+      
+      let display_val = calc.round(val, digits: 2)
+      let max_val = col_maxes.at(k)
+
+      // Compare
+      let content = if val == max_val { strong(str(display_val) + "x") } else { str(display_val) + "x" }
+      table_content.push(content)
+    }
+  }
+
+  // 5. Render the Table
+  table(
+    columns: (7em,) * (1 + resolutions.len()),
     align: (col, row) => center + horizon,
     fill: (col, row) => if row == 0 { gray.lighten(60%) } else { none },
     inset: 5pt,

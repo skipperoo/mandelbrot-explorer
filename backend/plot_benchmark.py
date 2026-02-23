@@ -56,7 +56,12 @@ for line in lines:
                 "FPS": fps_val
             })
 
+# --- CPU DATA PROCESSING ---
 df = pd.DataFrame(data)
+
+# AGGREGATION CHANGE: Group by key fields and compute the mean for FPS and Time
+if not df.empty:
+    df = df.groupby(['Resolution', 'Threads', 'Type'], as_index=False)[['FPS', 'Time']].mean()
 
 # Create a combined label for color differentiation
 df["Label"] = df["Resolution"] + " - " + df["Type"]
@@ -77,16 +82,28 @@ fig = px.line(
     y="FPS",
     color="Label",
     markers=True,
-    title="Benchmark Performance: CPU vs GPU",
+    title="Benchmark Performance: CPU vs GPU (Averaged)",
     category_orders={"Label": label_order},
     hover_data=["Resolution", "Type", "Time"]
 )
 
+# --- GPU DATA PROCESSING ---
+# AGGREGATION CHANGE: Average duplicate GPU runs
+if gpu_data:
+    gpu_df = pd.DataFrame(gpu_data)
+    # Group by Resolution and Type, calculate mean for FPS and Time
+    gpu_df_agg = gpu_df.groupby(['Resolution', 'Type'], as_index=False)[['FPS', 'Time']].mean()
+    gpu_data = gpu_df_agg.to_dict('records')
+
 # Add GPU benchmarks as horizontal lines
-thread_range = [df["Threads"].min(), df["Threads"].max()]
+thread_range = [df["Threads"].min(), df["Threads"].max()] if not df.empty else [0, 12]
 
 # Sort GPU data by resolution and type to match label_order
-gpu_data_sorted = sorted(gpu_data, key=lambda x: (resolution_order.index(x["Resolution"]), x["Type"]))
+# Filter out resolutions not in our predefined order to avoid index errors
+gpu_data_sorted = sorted(
+    [g for g in gpu_data if g["Resolution"] in resolution_order], 
+    key=lambda x: (resolution_order.index(x["Resolution"]), x["Type"])
+)
 
 for gpu_entry in gpu_data_sorted:
     res = gpu_entry["Resolution"]
@@ -101,7 +118,7 @@ for gpu_entry in gpu_data_sorted:
         name=label,
         line=dict(dash='dot', width=2),
         legendgroup=label,
-        hovertemplate=f"<b>{label}</b><br>FPS: {fps}<br>Time: {gpu_entry['Time']}s<extra></extra>"
+        hovertemplate=f"<b>{label}</b><br>FPS: {fps:.2f}<br>Time: {gpu_entry['Time']:.4f}s<extra></extra>"
     ))
 
 # Add single ideal scaling line (y=x)
@@ -126,10 +143,15 @@ fig.update_layout(
 )
 
 # fig.show()
-# fig.write_html(f"{sys.argv[1][:sys.argv[1].index(".")]}.html")
+# fig.write_html(f"{sys.argv[1][:sys.argv[1].index('.')]}.html")
+
+# --- TYPST OUTPUT GENERATION ---
 
 # 1. Extract Unique Threads (Sorted)
-threads = sorted(df["Threads"].unique().tolist())
+if not df.empty:
+    threads = sorted(df["Threads"].unique().tolist())
+else:
+    threads = []
 
 # 2. Group CPU Data
 cpu_entries = []
@@ -137,11 +159,14 @@ for label in label_order:
     subset = df[df["Label"] == label]
     if not subset.empty:
         # Cast each value to a native float() to strip np.float64 wrappers
+        # Since we aggregated, there is only one row per thread count
         fps_list = [
             float(subset[subset["Threads"] == t]["FPS"].iloc[0])
             if t in subset["Threads"].values else 0.0 
             for t in threads
         ]
+        # Round to 2 decimal places for cleaner Typst output
+        fps_list = [round(x, 2) for x in fps_list]
         typst_key = label.replace(" - ", "_").replace("x", "_").lower()
         cpu_entries.append(f"    res_{typst_key}: {tuple(fps_list)},")
 
@@ -150,13 +175,19 @@ gpu_entries = []
 for gpu_entry in gpu_data_sorted:
     res = gpu_entry["Resolution"]
     algo = gpu_entry["Type"]
-    # Explicitly cast to float
-    fps = float(gpu_entry["FPS"])
+    # Explicitly cast to float and round
+    fps = round(float(gpu_entry["FPS"]), 2)
     typst_key = f"res_{res}_{algo}".replace(" ", "_").replace("x", "_").lower()
     gpu_entries.append(f"    {typst_key}: {fps},")
 
 # 4. Construct the Final Typst String
-typst_dict = f"""#let {sys.argv[1].replace('.log', '')} = (
+max_fps = df["FPS"].max() if not df.empty else 0
+if gpu_data:
+    max_fps = max(max_fps, max(g["FPS"] for g in gpu_data))
+
+safe_filename = sys.argv[1].replace('.log', '').replace('.', '_').replace('/', '_')
+
+typst_dict = f"""#let {safe_filename} = (
   threads: {tuple(threads)},
   cpu: (
 {chr(10).join(cpu_entries)}
@@ -164,10 +195,9 @@ typst_dict = f"""#let {sys.argv[1].replace('.log', '')} = (
   gpu: (
 {chr(10).join(gpu_entries)}
   ),
-  ylim: {float(df["FPS"].max() * 1.1):.2f},
-  width: 10cm,
-  height: 8cm,
-  title: [*Benchmark Performance*],
+  width: 7cm,
+  height: 7cm,
+  title: [*{'Thread Pinning ON' if 'TP' in sys.argv[1] else 'Thread Pinning OFF'}*],
 )"""
 
 print(typst_dict)
