@@ -2,6 +2,7 @@
 #include "include/queue.h"
 #include "include/tpool.h"
 #include "include/webserver.h"
+#include "include/server.h"
 #include "include/websocket.h"
 #include <getopt.h>
 #include <pthread.h>
@@ -50,12 +51,12 @@ void render_slice_wrapper(void *arg) {
   }
 
   // Sync: Decrement task count and signal if finished
-  pthread_mutex_lock(&job->barrier->mutex);
+  CHECKPTHREAD(pthread_mutex_lock(&job->barrier->mutex));
   job->barrier->tasks_remaining--;
   if (job->barrier->tasks_remaining == 0) {
-    pthread_cond_signal(&job->barrier->cond);
+    CHECKPTHREAD(pthread_cond_signal(&job->barrier->cond));
   }
-  pthread_mutex_unlock(&job->barrier->mutex);
+  CHECKPTHREAD(pthread_mutex_unlock(&job->barrier->mutex));
 
   free(job);
 }
@@ -79,10 +80,10 @@ void *gpu_worker_thread(void *arg) {
                         job->iterations, job->x_min, job->y_min, job->x_scale,
                         job->y_scale);
 
-    pthread_mutex_lock(&job->mutex);
+    CHECKPTHREAD(pthread_mutex_lock(&job->mutex));
     job->done = 1;
-    pthread_cond_signal(&job->cond);
-    pthread_mutex_unlock(&job->mutex);
+    CHECKPTHREAD(pthread_cond_signal(&job->cond));
+    CHECKPTHREAD(pthread_mutex_unlock(&job->mutex));
   }
   return NULL;
 }
@@ -117,9 +118,9 @@ void *handle_client(void *arg) {
 
   DEBUG("Client connected (FD: %d)\n", client_fd);
 
-  char payload[1024];
+  char payload[WEBSK_PAYLOAD_LEN + 1];
 
-  while (receive_frame(client_fd, payload)) {
+  while (receive_frame(client_fd, payload, WEBSK_PAYLOAD_LEN)) {
     double x_min, y_min, x_scale, y_scale;
     int width, height, iterations;
 
@@ -157,21 +158,21 @@ void *handle_client(void *arg) {
       job.x_scale = x_scale;
       job.y_scale = y_scale;
       job.done = 0;
-      pthread_mutex_init(&job.mutex, NULL);
-      pthread_cond_init(&job.cond, NULL);
+      CHECKPTHREAD(pthread_mutex_init(&job.mutex, NULL));
+      CHECKPTHREAD(pthread_cond_init(&job.cond, NULL));
 
       // Submit to Queue
       queue_push(&g_gpu_queue, &job);
 
       // Wait for completion
-      pthread_mutex_lock(&job.mutex);
+      CHECKPTHREAD(pthread_mutex_lock(&job.mutex));
       while (!job.done) {
-        pthread_cond_wait(&job.cond, &job.mutex);
+        CHECKPTHREAD(pthread_cond_wait(&job.cond, &job.mutex));
       }
-      pthread_mutex_unlock(&job.mutex);
+      CHECKPTHREAD(pthread_mutex_unlock(&job.mutex));
 
-      pthread_mutex_destroy(&job.mutex);
-      pthread_cond_destroy(&job.cond);
+      CHECKPTHREAD(pthread_mutex_destroy(&job.mutex));
+      CHECKPTHREAD(pthread_cond_destroy(&job.cond));
 
     } else {
       int num_slices = num_workers * 8;
@@ -187,6 +188,7 @@ void *handle_client(void *arg) {
         int end = (i == num_slices - 1) ? height : (i + 1) * rows_per_slice;
 
         render_job_t *job = malloc(sizeof(render_job_t));
+        CHECKALLOC(job);
         job->buffer = img_buffer;
         job->width = width;
         job->start_row = start;
@@ -370,7 +372,7 @@ int main(int argc, char *argv[]) {
       perror("Failed to create GPU worker thread");
       exit(EXIT_FAILURE);
     }
-    pthread_detach(gpu_thread); // Run in background
+    CHECKPTHREAD(pthread_detach(gpu_thread)); // Run in background
   }
 
   // 4. Socket Setup
@@ -401,6 +403,7 @@ int main(int argc, char *argv[]) {
 
     // Allocate context for the new thread
     client_context_t *ctx = malloc(sizeof(client_context_t));
+    CHECKALLOC(ctx);
     ctx->client_fd = client_fd;
     ctx->pool = pool;
     ctx->mode = mode;
@@ -412,7 +415,7 @@ int main(int argc, char *argv[]) {
       close(client_fd);
       free(ctx);
     } else {
-      pthread_detach(thread_id);
+      CHECKPTHREAD(pthread_detach(thread_id));
     }
   }
 

@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "common.h"
 
 
 typedef struct {
@@ -42,17 +43,17 @@ void tpool_add_work(tpool_t *pool, void (*func)(void *), void *arg);
 void tpool_shutdown(tpool_t *pool_ptr);
 
 static inline void barrier_init(frame_barrier_t *barrier, int count) {
-  pthread_mutex_init(&barrier->mutex, NULL);
-  pthread_cond_init(&barrier->cond, NULL);
+  CHECKPTHREAD(pthread_mutex_init(&barrier->mutex, NULL));
+  CHECKPTHREAD(pthread_cond_init(&barrier->cond, NULL));
   barrier->tasks_remaining = count;
 }
 
 static inline void barrier_wait(frame_barrier_t *barrier) {
-  pthread_mutex_lock(&barrier->mutex);
+  CHECKPTHREAD(pthread_mutex_lock(&barrier->mutex));
   while (barrier->tasks_remaining > 0) {
-    pthread_cond_wait(&barrier->cond, &barrier->mutex);
+    CHECKPTHREAD(pthread_cond_wait(&barrier->cond, &barrier->mutex));
   }
-  pthread_mutex_unlock(&barrier->mutex);
+  CHECKPTHREAD(pthread_mutex_unlock(&barrier->mutex));
 }
 
 // Worker Thread Function
@@ -60,15 +61,15 @@ static void *thread_worker(void *pool_ptr) {
   tpool_t *pool = (tpool_t *)pool_ptr;
 
   while (1) {
-    pthread_mutex_lock(&pool->lock);
+    CHECKPTHREAD(pthread_mutex_lock(&pool->lock));
 
     // Wait for tasks
     while (pool->count == 0 && !pool->shutdown) {
-      pthread_cond_wait(&pool->notify, &pool->lock);
+      CHECKPTHREAD(pthread_cond_wait(&pool->notify, &pool->lock));
     }
 
     if (pool->shutdown && pool->count == 0) {
-      pthread_mutex_unlock(&pool->lock);
+      CHECKPTHREAD(pthread_mutex_unlock(&pool->lock));
       break;
     }
 
@@ -77,7 +78,7 @@ static void *thread_worker(void *pool_ptr) {
     pool->queue_head = (pool->queue_head + 1) % pool->queue_size;
     pool->count--;
 
-    pthread_mutex_unlock(&pool->lock);
+    CHECKPTHREAD(pthread_mutex_unlock(&pool->lock));
 
     // Execute task
     (*(task.function))(task.argument);

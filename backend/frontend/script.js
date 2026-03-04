@@ -316,6 +316,11 @@ class MandelbrotViewer {
       this.renderKeyframeList();
     });
     document.getElementById('btnPlay').addEventListener('click', () => this.playAnimation());
+    document.getElementById('btnPlayDefault').addEventListener('click', () => this.playDefaultAnimation());
+    document.getElementById('btnExportPath').addEventListener('click', () => this.exportAnimationPath());
+    document.getElementById('btnImportPath').addEventListener('click', () => document.getElementById('importFile').click());
+    document.getElementById('importFile').addEventListener('change', (e) => this.importAnimationPath(e));
+    document.getElementById('btnStop').addEventListener('click', () => this.stopAnimation());
 
     // Export
     document.getElementById('btnExport').addEventListener('click', () => {
@@ -393,12 +398,20 @@ class MandelbrotViewer {
     this.isPlaying = true;
     this.animIndex = 0;
     this.animStartTime = Date.now();
-    this.animDuration = 2000; // 2 seconds between keyframes
+    this.animDuration = 1000; // 2 seconds between keyframes
 
-    // Disable controls
+    // Disable controls and enable stop button
     document.body.style.pointerEvents = 'none';
+    document.getElementById('btnStop').disabled = false;
 
     this.advanceAnimation();
+  }
+
+  stopAnimation() {
+    if (!this.isPlaying) return;
+    this.isPlaying = false;
+    document.body.style.pointerEvents = 'auto';
+    document.getElementById('btnStop').disabled = true;
   }
 
   advanceAnimation() {
@@ -416,6 +429,7 @@ class MandelbrotViewer {
         // End of animation
         this.isPlaying = false;
         document.body.style.pointerEvents = 'auto';
+        document.getElementById('btnStop').disabled = true;
         return;
       }
     }
@@ -424,24 +438,187 @@ class MandelbrotViewer {
     const start = this.animationPath[this.animIndex];
     const end = this.animationPath[this.animIndex + 1];
 
-    // Ease function (Smoothstep)
+    // Linear interpolation (no easing)
     const t = Math.min(progress, 1.0);
-    const ease = t * t * (3 - 2 * t);
 
     // Linear interpolation for X, Y, Iter
-    this.state.x = start.x + (end.x - start.x) * ease;
-    this.state.y = start.y + (end.y - start.y) * ease;
-    this.state.iter = Math.floor(start.iter + (end.iter - start.iter) * ease);
+    this.state.x = start.x + (end.x - start.x) * t;
+    this.state.y = start.y + (end.y - start.y) * t;
+    this.state.iter = Math.floor(start.iter + (end.iter - start.iter) * t);
 
-    // Logarithmic interpolation for Zoom (Scale)
-    // scale = start * (end/start)^t
-    // Width 'w' acts as the inverse of scale.
-    // w(t) = w0 * (w1/w0)^t
-    const wRatio = end.w / start.w;
-    this.state.w = start.w * Math.pow(wRatio, ease);
+    // Linear interpolation for dimensions (instead of logarithmic)
+    this.state.w = start.w + (end.w - start.w) * t;
+    this.state.h = start.h + (end.h - start.h) * t;
     this.updateAspect();
 
     this.requestFrame();
+  }
+
+  // --- Animation Import/Export ---
+
+  exportAnimationPath() {
+    if (this.animationPath.length === 0) {
+      alert('No animation path to export. Add some keyframes first!');
+      return;
+    }
+    const data = {
+      version: '1.0',
+      created: new Date().toISOString(),
+      keyframes: this.animationPath
+    };
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.download = `mandelbrot_animation_${Date.now()}.json`;
+    link.href = url;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  importAnimationPath(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (!data.keyframes || !Array.isArray(data.keyframes)) {
+          throw new Error('Invalid animation file format');
+        }
+        // Validate keyframe structure
+        for (const kf of data.keyframes) {
+          if (typeof kf.x !== 'number' || typeof kf.y !== 'number' || 
+              typeof kf.w !== 'number' || typeof kf.h !== 'number' ||
+              typeof kf.iter !== 'number') {
+            throw new Error('Invalid keyframe structure');
+          }
+        }
+        this.animationPath = data.keyframes;
+        this.renderKeyframeList();
+        alert(`Loaded ${data.keyframes.length} keyframes`);
+        if (data.keyframes.length >= 2) btnPlay.disabled = false;
+      } catch (err) {
+        alert('Failed to import animation: ' + err.message);
+      }
+      // Reset file input
+      event.target.value = '';
+    };
+    reader.readAsText(file);
+  }
+
+  playDefaultAnimation() {
+    // A nice zoom journey through the Mandelbrot set
+    this.animationPath = [
+    {
+      x: -2.3,
+      y: -1.2,
+      w: 4,
+      h: 2.43142144638404,
+      iter: 0
+    },
+    {
+      x: -2.3,
+      y: -1.2,
+      w: 4,
+      h: 2.43142144638404,
+      iter: 50
+    },
+    {
+      x: -1.6501847508732521,
+      y: -0.2507184953803835,
+      w: 0.7520876409271516,
+      h: 0.45716050492766336,
+      iter: 49
+    },
+    {
+      x: -1.8699529893520397,
+      y: -0.15296388875641437,
+      w: 0.5135133977756521,
+      h: 0.31214187208931415,
+      iter: 49
+    },
+    {
+      x: -1.8699529893520397,
+      y: -0.15296388875641437,
+      w: 0.5135133977756521,
+      h: 0.31214187208931415,
+      iter: 10
+    },
+    {
+      x: -1.8699529893520397,
+      y: -0.15296388875641437,
+      w: 0.5135133977756521,
+      h: 0.31214187208931415,
+      iter: 190
+    },
+    {
+      x: -1.9384171376668917,
+      y: -0.09955570932290318,
+      w: 0.3301005695268874,
+      h: 0.2006534010528145,
+      iter: 190
+    },
+    {
+      x: -1.8640482960476545,
+      y: -0.0024742214794128505,
+      w: 0.007701591264032635,
+      h: 0.004681453542663215,
+      iter: 190
+    },
+    {
+      x: -1.8621875778760246,
+      y: -0.000051509748331205526,
+      w: 0.0001264847988182686,
+      h: 0.00007688446312207702,
+      iter: 190
+    },
+    {
+      x: -1.8621875778760246,
+      y: -0.000051509748331205526,
+      w: 0.0001264847988182686,
+      h: 0.00007688446312207702,
+      iter: 110
+    },
+    {
+      x: -1.8621875778760246,
+      y: -0.000051509748331205526,
+      w: 0.0001264847988182686,
+      h: 0.00007688446312207702,
+      iter: 950
+    },
+    {
+      x: -1.8621166379815548,
+      y: -0.000005436211901879243,
+      w: 0.000017861700672238183,
+      h: 0.000010857330520843043,
+      iter: 0
+    },
+    {
+      x: -1.8621166379815548,
+      y: -0.000005436211901879243,
+      w: 0.000017861700672238183,
+      h: 0.000010857330520843043,
+      iter: 80
+    },
+    {
+      x: -1.8621166379815548,
+      y: -0.000005436211901879243,
+      w: 0.000017861700672238183,
+      h: 0.000010857330520843043,
+      iter: 180
+    },
+    {
+      x: -1.8621166379815548,
+      y: -0.000005436211901879243,
+      w: 0.000017861700672238183,
+      h: 0.000010857330520843043,
+      iter: 760
+    }
+  ];
+    this.renderKeyframeList();
+    this.playAnimation();
   }
 }
 

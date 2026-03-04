@@ -1,5 +1,6 @@
 #include "include/websocket.h"
 #include "include/websocket_utils.h"
+#include "include/common.h"
 
 int perform_handshake(int client_fd, char *request_buffer) {
   char *key_start = strstr(request_buffer, "Sec-WebSocket-Key: ");
@@ -11,8 +12,11 @@ int perform_handshake(int client_fd, char *request_buffer) {
   if (!key_end)
     return -1;
 
-  char key[64];
+  char key[KEY_LEN];
   int key_len = key_end - key_start;
+  if (key_len >= KEY_LEN)
+    return -1;
+
   strncpy(key, key_start, key_len);
   key[key_len] = '\0';
 
@@ -70,10 +74,7 @@ void send_binary_frame(int client_fd, uint8_t *data, size_t len) {
   send(client_fd, data, len, 0);
 }
 
-// --- 3. Frame Receiving (Client -> Server) ---
-// Returns 1 if valid text frame received, 0 on close/error
-// 'out_payload' buffer must be large enough
-int receive_frame(int client_fd, char *out_payload) {
+int receive_frame(int client_fd, char *out_payload, size_t max_len) {
   uint8_t header[2];
   if (recv(client_fd, header, 2, 0) <= 0)
     return 0;
@@ -94,7 +95,6 @@ int receive_frame(int client_fd, char *out_payload) {
     recv(client_fd, ext_len, 2, 0);
     payload_len = (ext_len[0] << 8) | ext_len[1];
   }
-  // Usually requests for coords are small so we skip 127 logic for simplicity
 
   uint8_t mask_key[4];
   if (is_masked) {
@@ -102,11 +102,15 @@ int receive_frame(int client_fd, char *out_payload) {
   }
 
   uint8_t *buffer = malloc(payload_len + 1);
+  CHECKALLOC(buffer);
   size_t total_read = 0;
   while (total_read < payload_len) {
     total_read +=
         recv(client_fd, buffer + total_read, payload_len - total_read, 0);
   }
+   
+  if (payload_len > max_len)
+    return 0;
 
   // Unmask
   if (is_masked) {

@@ -65,19 +65,32 @@
 
         <div class="divider"></div>
 
-        <div class="control-group">
-          <label>Animation Path</label>
-          <div class="btn-grid">
-            <button id="btnKeyframe" class="btn secondary">Add Keyframe</button>
-            <button id="btnClearPath" class="btn destructive">Clear</button>
-          </div>
-          <div class="keyframe-list" id="keyframeList">
-            <div class="empty-state">No keyframes</div>
-          </div>
+      <div class="control-group">
+        <label>Animation Path</label>
+        <div class="btn-grid">
+          <button id="btnKeyframe" class="btn secondary">Add Keyframe</button>
+          <button id="btnClearPath" class="btn destructive">Clear</button>
+        </div>
+        <div class="keyframe-list" id="keyframeList">
+          <div class="empty-state">No keyframes</div>
+        </div>
+        <div class="btn-grid">
           <button id="btnPlay" class="btn primary" disabled>
-            ▶ Play Animation
+            ▶ Play
+          </button>
+          <button id="btnStop" class="btn destructive" disabled style="pointer-events: auto;">
+            ⏹ Stop
           </button>
         </div>
+        <button id="btnPlayDefault" class="btn primary">
+          ▶ Play Default Animation
+        </button>
+        <div class="btn-grid" style="margin-top: 8px;">
+          <button id="btnExportPath" class="btn secondary">Export JSON</button>
+          <button id="btnImportPath" class="btn secondary">Import JSON</button>
+        </div>
+        <input type="file" id="importFile" accept=".json" style="display: none;">
+      </div>
 
         <div class="divider"></div>
 
