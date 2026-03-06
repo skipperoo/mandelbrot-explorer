@@ -10,7 +10,6 @@ A zero-dependency, hardware-accelerated Mandelbrot set renderer. Built in C and 
 
 ## Requirements
 
-- Linux Environment
 - Docker & Docker Compose
 - **Optional:** Intel CPU, Intel GPU or NVIDIA GPU
 
