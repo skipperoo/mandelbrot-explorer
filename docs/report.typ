@@ -23,11 +23,15 @@
 
 #show heading.where(level: 4): it => pad(left: -0.3em, it)
 #align(center, text(17pt)[
-  *Advanced Programming*
+  *Advanced Programming Project*
+])
+#v(-0.7em)
+#align(center, text(12pt)[
+  *B09 - AI-Assisted Multithreaded Mandelbrot Viewer*
 ])
 #align(center)[
-  Leonardo Scoppitto\
-  February 2025
+  Leonardo Scoppitto $numero 545615$\
+  March 2026
 ]
 
 
@@ -40,8 +44,7 @@
 
 
 
-
-= Design phase
+= Introduction and Instructions
 
 The project I chose is _B09 - AI-Assisted Multithreaded Mandelbrot Viewer with Zoom, Export, and Path Animation Goal_.
 
@@ -60,33 +63,58 @@ Use AI to help design and implement a multithreaded Mandelbrot set viewer that s
 ```
 ]
 
+*Requirements:*
+- Docker
+- A modern browser
+
+There are 4 docker compose files to run the backend in various configurations:
+- `docker-compose.scalar.yml`: Uses scalar operations and can be run on any machine.
+- `docker-compose.simd.yml`: Uses SIMD instructions and can be run on machines that support AVX/AVX2 instruction sets.
+- `docker-compose.intel.yml`: The computation is offloaded to the integrated GPU. It requires an Intel iGPU .
+- `docker-compose.nvidia.yml`: The computation is offloaded to the GPU. It requires an Nvidia GPU.
+
+*How to run it:*
+#pretty_code(show_line_number: false)[
+  ```bash
+  # To run the application
+  docker compose -f docker-compose.<version>.yml up --build
+  
+  # To run the benchmark
+  cd backend
+  make BENCHFLAGS="-DZOOM=0.5 -DTHREAD_PINNING" -j
+  make bench
+  ```
+]
+
+When running the benchmark, the `ZOOM: float` level controls the load, while defining `THREAD_PINNING` makes the application threadpool pin each thread to a logical core of the CPU by setting the affinity.
+
+
+
+= Design phase
 I already had an idea on how I wanted to implement this project, so here's a summary of the technical requirements that I imposed to the LLMs:
 
 
 *Requirement \#1*
 #pad(left: 1em)[
-  The first requirement is *not to use third party libraries*. One of the benefits of using AI to speedup development is that, for simple and non critical use cases it is almost free to reinvent the wheel#footnote[Of course core and critical libraries such as OpenSSL, complex protocol libraries or DB connectors are excluded from this argument.] and avoid the dependency hell that plagues modern software development#footnote[https://en.wikipedia.org/wiki/Dependency_hell.].
+  The first requirement is *not to use third party libraries*. One of the benefits of using AI to speedup development is that, for simple and non critical use cases it is almost free to reinvent the wheel#footnote[Of course, core and critical libraries such as OpenSSL, complex protocol libraries or DB connectors are excluded from this argument.] and avoid the dependency hell that plagues modern software development#footnote[https://en.wikipedia.org/wiki/Dependency_hell.].
 ]
 
 *Requirement \#2*
 #pad(left: 1em)[
-  Implement the project using a client-server architecture to decouple the frontend and the backend. The other option was to implement a GUI application to manage both the computation and the visualization of the Mandelbrot, but the project would have become way more complex:
+  Use a *client-server architecture* to decouple the frontend and the backend. The other option was to implement a GUI application to manage both the computation and the visualization of the Mandelbrot, but the project would have become way more complex:
   - Using a native UI framework would have required different codebases to target different OSes.
   - Using a multi-platform framework (like Flutter or solutions like Tauri) could have been a valid solution, but, in my experience, the performance do not match a native solution.
 ]
 
-
-#pagebreak()
-
 *Requirement \#3*
 #pad(left: 1em)[
-  For the frontend I decided to implement a minimal web app so that with one codebase I could target any device with a modern browser. To limit the boilerplate at the minimum I opted for plain HTML + JS + CSS instead of framework like React, which is suitable for more complex application with a complex state management, but in our case the application consists in a simple `<canvas>` element and a sidebar with a bunch of buttons.
+  For the *frontend* I decided to implement a minimal web app so that with one codebase I could target any device with a modern browser. To limit the boilerplate at the minimum I opted for *plain HTML + JS + CSS* instead of a framework like React, which is suitable for more complex application with a complex state management, but in our case the application consists in a simple `<canvas>` element and a sidebar with a bunch of buttons.
 ]
 
 
 *Requirement \#4*
 #pad(left: 1em)[
-  For the backend I wanted to be able to easily use SIMD instructions to speedup the rendering and to be able to implement GPU rendering, so the candidates were C, C++, Rust and Zig. In Table 1 I reported what I have considered when choosing the language. Ultimately, I opted for C because I worked with it professionally and because I prefer it for simple projects that require high performance and low level programming.
+  For the *backend* I wanted to be able to easily use *SIMD instructions* to speedup the rendering and to be able to implement *GPU rendering*, so the candidates were C, C++, Rust and Zig. In Table 1 I reported what I have considered when choosing the language. Ultimately, I opted for *C* because I worked with it professionally and because I prefer it for simple projects that require high performance and low level control.
 ]
 
 #figure(
@@ -154,7 +182,7 @@ To structure the project and set the foundation of the renderer and the visualiz
   inset: 10pt,
   [
     #emph[
-      Hello I have a implement this college project project:
+      Hello I have a implement this college project:
 
       Multithreaded Mandelbrot Viewer with Zoom, Export, and Path Animation along a user-defined path into the fractal (e.g. zoom flight), leveraging concurrency to render efficiently.
 
@@ -181,11 +209,10 @@ To structure the project and set the foundation of the renderer and the visualiz
   radius: 8pt,
   inset: 10pt,
   [
-    Gemini basically approved the tech stack and the constraints, suggesting to use websockets as it's easier to implement than WebRTC.
+    Gemini basically approved the tech stack and the constraints, suggesting to use websockets as they're easier to implement from scratch than WebRTC.
 
-    To visualize the madelbrot it suggested the canvas API (`<canvas>` tag) and it also designed the basic communication protocol:
-
-    - The client sends [`x_min`,`y_min`,`x_scale`,`y_scale`,`width`,`height`,`iterations`] as a CSV string (I added the iteration count later as it was fixed).
+    To visualize the madelbrot it suggested the canvas API (`<canvas>` tag) and it also suggested a basic communication protocol:
+    - The client sends [`x_min`,`y_min`,`x_scale`,`y_scale`,`width`,`height`,`iterations`] as a CSV string (I added the iteration count later as Gemini hardcoded it in the backend).
     - The server responds with an `ArrayBuffer` containing the bitmap to be painted on the `<canvas>`.
   ]
 )
@@ -202,7 +229,7 @@ To structure the project and set the foundation of the renderer and the visualiz
   inset: 10pt,
   [
     #emph[
-      Let's start with the math part. Please create a `render_simd` function to leverage `AVX` instruction, conditionally for the correct target architecture (I have to test it on my laptop with `AVX2` and on my server with `AVX`) and create a main function to benchmark the speedup when using single core, multicore and multicore + SIMD
+      Let's start with the math part. Please create a `render_simd` function to leverage `AVX` or `AVX2` instruction sets conditionally for the correct target architecture (I have to test it on my laptop with `AVX2` and on my server with `AVX`) and create a main function to benchmark the speedup when using single core, multicore and multicore + SIMD
     ]
   ]
 )
@@ -289,7 +316,7 @@ At this point I started a new chat to prevent the LLM from hallucinating#footnot
   radius: 8pt,
   inset: 10pt,
   [
-    `A bit of context about the project`
+    Before making the request I gave the LLM a bit of context about the project.
 
     #emph[
       Let's start the frontend implementation. These are the rules:
@@ -300,7 +327,7 @@ At this point I started a new chat to prevent the LLM from hallucinating#footnot
       - The protocol to be used over the websocket is:
     ]
     ```c
-    // Expected format: "x_min,y_min,x_scale,y_scale,width,height,iterations"
+    // The server expects: "x_min,y_min,x_scale,y_scale,width,height,iterations"
     sscanf(payload, "%lf,%lf,%lf,%lf,%d,%d,%d", &x_min, &y_min, &x_scale,
            &y_scale, &width, &height, &iterations)  
     ```
@@ -334,7 +361,7 @@ At this point I started a new chat to prevent the LLM from hallucinating#footnot
   radius: 8pt,
   inset: 10pt,
   [
-    It created the `index.html`, the `style.css` and the main application `script.js`. The application opened in a browser seems to be fine, apart from minor UI inconsistencies that I manually fixed very quickly.
+    It created the `index.html`, the `style.css` and the application logic `script.js`. The application opened in a browser seems to be fine, apart from minor UI inconsistencies that I manually fixed very quickly.
   ]
 )
 ]
@@ -396,22 +423,22 @@ Inspecting the code manually revealed two problems:
 1. The `buffer` is declared as an array of `4096` elements set to `0`, but on line `10`, the read function is allowed to overwrite the null terminator in the last position of the array. Since the buffer is later manipulated by `string.h` functions that expect the input string to be null terminated, I changed the buffer declaration to `char buffer[4097]`. However, this was not the bug that made the backend crash.
 #pretty_code[
   ```c
-    char buffer[4096] = {0};
-    // ...
-    client_fd =
-        accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen);
-    if (client_fd < 0)
-      continue;
+char buffer[4096] = {0};
+// ...
+client_fd =
+    accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen);
+if (client_fd < 0)
+  continue;
 
-    printf("Client connected\n");
-    memset(buffer, 0, 4096);
-    read(client_fd, buffer, 4096);
-    printf("Received: %s\n", buffer);
-    if (perform_handshake(client_fd, buffer) != 0) {
-      close(client_fd);
-      continue;
-    }
-    printf("Handshake successful\n");
+printf("Client connected\n");
+memset(buffer, 0, 4096);
+read(client_fd, buffer, 4096);
+printf("Received: %s\n", buffer);
+if (perform_handshake(client_fd, buffer) != 0) {
+  close(client_fd);
+  continue;
+}
+printf("Handshake successful\n");
 ```
 ]
 2. I  manually isolated the function that caused the crash and it was the `SHA1` implementation (see snippet below), where an underflow when computing `part_len`#footnote[If `len < i`, then `part_len` underflows.] caused the `memcpy` try to copy terabytes of data. The LLM provided an update version that resolved the issue.
@@ -467,15 +494,15 @@ services:
   ```
 ]
 
-At this point, I had a reproducible environment to manually test the application and the instructions to let the agent build and run the application, so the next step was to initialize a git repository to track the changes made by the agent and create a new branch, which I named `feature/opengl-support` as I wanted to implement the support for rendering the mandelbrot using the GPU. I opted for OpenGL because it can target any GPU using the same shader and from a quick search seemed to be easier to use than Vulkan.
-
-First, I attempted at using #link("https://opencode.ai/")[Opencode] wired to a local instance of `qwen3:8b` running via Ollama on one of my servers, but the GTX1070 with only 8Gb of VRAM was not enough to get a good development experience, resulting in an high waiting time before the first token and an output that was not on par with much larger models. Then I tried to connect my Gemini account to both Opencode and #link("https://geminicli.com/")[Gemini CLI], which worked flawlessly.
+At this point, I had a reproducible environment to manually test the application, so the next step was to initialize a git repository to track the changes made by the agent and be able to rollback if needed. I create a new branch named `feature/opengl-support`, where to implement the support for rendering the mandelbrot using the GPU. I opted for OpenGL because it can target any GPU using the same shader. I also considered Vulkan, but a quick search revealed that it is way more complex than OpenGL.
 
 Before issuing any task to the agent, I took some time review the content of the two main Gemini chats that produced the most of the code to create the foundations of the project documentation which has been summarized into `docs.md`.
 
-I created a new specification file that outlined the new feature to be developed, specifying the function signature, the new environment variable to be used to enable GPU rendering and the regression and acceptance tests#footnote[The tests consist in:
+First, I attempted to use #link("https://opencode.ai/")[Opencode] wired to a local instance of `qwen3:8b` running via Ollama on one of my servers, but the GTX1070 with only 8Gb of VRAM was not enough to get a good development experience, resulting in an high waiting time before the first token and an output that was not on par with much larger models. Then I tried to connect my Gemini account to both OpenCode and #link("https://geminicli.com/")[Gemini CLI], to evaluate both tools#footnote[I ended up preferring OpenCode as it allows to enqueue prompts while the agent is working to steer it. On the other hand, Gemini CLI evaluates enqueued prompts only when the agent stops, but it uses the tokens more efficiently, switching between high and low reasoning models when needed.]. Finally, I also tried OSS models like `Kimi 2.5` or `Qwen 3` by connecting an Nvidia Developer account to OpenCode#footnote[The service is free but is best effort, so sometimes the models hang or are unreachable.].
+
+To guide the agent without having to write huge prompts, I created a new specification file (see Appendix A.1) that outlined the new feature to be developed, specifying the function signature, the new environment variables to be used to enable GPU rendering and the regression and acceptance tests#footnote[The tests consist in:
   - Running the backend benchmark to check that the already working functions still work 
-  - Start the server and send some rendering requests using a python script to perform an integration test.] that the agent should perform in order to decide whether the implementation was acceptable or not. To use OpenCode to the fullest, I connected an Nvidia Developer account to get free access to OSS models like `Kimi 2.5` or `Qwen 3`:
+  - Start the server and send some rendering requests using a python script to perform an integration test.] that the agent had to perform in order to decide whether the implementation was acceptable or not.
 
 #box(
   stroke: 1pt + black,
@@ -509,10 +536,167 @@ It successfully created the harness and the shader to make the function work, bu
   ```
 ]
 
-So, I decided to hand the task to Gemini CLI, using the Gemini 3 Pro (high reasoning) model to plan the steps needed to fix the code and make it support OpenGL and then I used Gemini 3 Flash (still high reasoning) to write the actual implementation, as it is faster and uses less tokens#footnote[The Unipi plan offers about 2M free tokens every 24 hours.].
-With a bit of back and forth, I managed to direct Gemini towards the solution analyzing the logs together.
+With a bit of back and forth, I managed to direct the agent towards the solution, first by pointing out the issue and then iterating on the implementation and analyzing the logs together.
 
-Now I wanted to get rid of Nginx, as the project just needs a very basic webserver that serves the HTML file (i.e. responds to basic GET requests), so I created another `task.md` file (see Appendix A.2) with the steps needed to implement the functionality. Gemini managed to build it in one shot as it is a fairly easy task, also handling corner cases and preventing traversal attempts as I instructed it to do in the specification.
+Now, I wanted to get rid of Nginx, as the project just needed a very basic webserver  to serve files (i.e. responds to basic GET requests), so I created another `task.md` file (see Appendix A.2) with the steps needed to implement the functionality. Gemini managed to build it in one shot as it is a fairly easy task, also handling corner cases and preventing traversal attempts as I instructed it to do in the specification.
+
+#pagebreak()
+
+== Final backend review
+
+
+=== Potential buffer overflows
+
+Analyzing the code I found that the `receive_frame` in `websocket.c` writes into the `out_payload` buffer without checking its length.
+
+I fixed it passing the maximum length of the `out_payload` (parameter `size_t max_len`) and checking whether the incoming payload fits the buffer:
+
+#pretty_code()[
+```c
+// In server.c the payload is allocated to the stack
+// And initialized to 0.
+char payload[WEBSK_PAYLOAD_LEN + 1] = {0};
+while(receive_frame(client_fd, payload, WEBSK_PAYLOAD_LEN)) {
+  // process payload
+}
+
+int receive_frame(int client_fd, char *out_payload, size_t max_len) {
+  // Parse header and read length
+  if (payload_len >= max_len) {
+      // payload too large for buffer
+      return -1;
+  }
+  // Receive payload
+}
+```
+]
+
+I found a similar security issue also in the `perform_handshake` function, where the key was copied in a buffer without checking the length first. This issue has been addressed by explicitly checking the length of the incoming key:
+
+#pretty_code()[
+```c
+// Original version
+int perform_handshake(int client_fd, char *request_buffer) {
+  char *key_start = strstr(request_buffer, "Sec-WebSocket-Key: ");
+  if (!key_start)
+    return -1;
+
+  key_start += 19;
+  char *key_end = strstr(key_start, "\r\n");
+  if (!key_end)
+    return -1;
+  char key[64];
+  int key_len = key_end - key_start;
+  // key_len could be > 64
+  strncpy(key, key_start, key_len);
+  // ...
+}
+
+// Patched version
+int perform_handshake(int client_fd, char *request_buffer) {
+  // ...
+  char key[KEY_LEN];
+  int key_len = key_end - key_start;
+  if (key_len >= KEY_LEN)
+    return -1;
+  // ...
+}
+```
+]
+
+=== Minor issues
+
+The next issues are not as critical as the ones reported in the previous section, but have still been addressed.
+
+*SIMD:*
+#pad(left: 1em)[
+In the `render_simd` function, the original function did not check whether the for loop iteration count is a multiple of $4$#footnote[AVX/AVX2 instructions allow to process 4 pixels per iteration.]. The issue has been addressed by checking the bounds before the loop and implementing a scalar fallback in case there are leftover pixels to process:
+
+#pretty_code()[
+```c
+void render_simd(/* ... */) {
+  // `width` is passed as a parameter
+  int vec_width = width & ~3; // Bitwise trick to round down to nearest multiple of 4.
+  // SIMD processing
+
+  // Scalar fallback. If the width is a multiple of 4
+  // this section does not run
+  for (int px = vec_width; px < width; px++) {
+      // Scalar operations
+  }
+}
+```
+]
+]
+
+*Webserver:*
+#pad(left: 1em)[
+Despite having asked the LLM to check for path traversal in the webserver implementation, it just checked for the presence of `..` in the provided path. To make it more robust I changed that simple check with `realpath` making it more robust.
+
+#pretty_code()[
+```c
+// Original version
+static void serve_file(int client_fd, const char *root_path, const char *path) {
+  char full_path[MAX_PATH_LEN];
+  const char *target_path = path;
+  if (strstr(path, "..")) {
+    // Send 403 Forbidden
+    return;
+  }
+  // ...
+}
+
+// Patched version
+static void serve_file(int client_fd, const char *root_path, const char *path) {
+  // ...
+  if (strcmp(path, "/") == 0) {
+    target_path = "/index.html";
+  }
+  snprintf(raw_path, sizeof(raw_path), "%s%s", root_path, target_path);
+  realpath(raw_path, resolved_path);
+  if (strncmp(resolved_path, root_path, strlen(root_path)) != 0) {
+    // Send 403 Forbidden
+    return;
+  }
+  // ...
+}
+
+```
+  ]
+]
+
+*Best practices and error handling:*
+#pad(left: 1em)[
+Finally, the last issue that I found is that the LLMs did not add any check after neither heap allocations nor system calls/`pthread_*` calls. While this could be fine for a simple application, I think it is a good habit to always check for errors (at least critical ones) and act accordingly:
+- If the application is mission critical an error should be handled to ensure the least amount of damage and the best user experience possible.
+- If the application is a simple demo or tool, it is still important to explicitly check for errors and then leave the application crash or exit.
+
+#pretty_code()[
+```c
+#define CHECKALLOC(pointer) if(pointer == NULL) {fprintf(stderr, "Out Of Memory (file %s, line %d): "#pointer"\n", __FILE__, __LINE__);exit(EXIT_FAILURE);}
+#define CHECKSC(call) \
+	if(call < 0){ \
+    fprintf(stderr, "Error (file %s, line %d): %s\n", __FILE__, __LINE__, strerror(errno)); \
+		exit(EXIT_FAILURE); \
+	}
+#define CHECKPTHREAD(res) \
+	if(res != 0){ \
+    fprintf(stderr, "Error (file %s, line %d): %s\n", __FILE__, __LINE__, strerror(res)); \
+		exit(EXIT_FAILURE); \
+	}
+
+// Examples
+server->queue = malloc(sizeof(http_request_t) * queue_size);
+CHECKALLOC(server->queue);
+CHECKPTHREAD(pthread_mutex_lock(&server->mutex));
+```
+]
+
+In this case, I decided to implement 3 macros to give useful information, such as where and why the error occurred, and then the let the application exit with a non 0 return code.
+]
+
+
+
 
 = Multithreaded performance evaluation
 
@@ -538,21 +722,7 @@ Here it is what we can observe:
 - The speedup in almost all executions is pretty much linear as the task is CPU bound. We can observe that for a higher `ZOOM` value the parallelization overhead is starting to sum up as the buffers become larger and the price of accessing the main memory starts to show.
 - The workload doesn't benefit that much from setting the thread affinity (thread pinning) as the computation does not involve heavy reliance on the caches like when computing kernels and matrices multiplications.
 - In benchmark 4, the ideal speedup of the SIMD execution over the scalar execution should be 4x, as it allows to process 4 pixels at a time. For brevity, I reported just the run with `ZOOM=1`, but all the executions show about the same results, where the SIMD execution achieves about a 3x speedup across the board as we can see in benchmark 5 where the SIMD efficiency is reported.
-- Regarding the GPU performance, they are reported in benchmark 6, where we can see the huge difference between and integrated GPU and a dedicated one. Also, it interesting to note that the Intel GPU performs better at 1080p than at 540p.
-
-
-
-
-
-
-
-
-GPU Performance on Heavy Workloads The Intel GPU shows an interesting trend where it performs better on the heavier "Benchmark 5" (~19.68 FPS at 1080p) compared to the medium "Benchmark 1" (~16.98 FPS at 1080p). This behavior is likely linked to the system's use of GL_MAP_PERSISTENT_BIT to map GPU memory directly to the CPU's address space. In heavier workloads, the GPU spends more time calculating per pixel relative to the time spent on memory synchronization and driver overhead. This higher ratio of "compute" to "overhead" allows the GPU to remain saturated more effectively. Additionally, the rendering engine automatically optimizes precision, switching between float and double based on zoom levels to maximize throughput, which helps maintain performance even as the workload complexity increases.
-
-
-
-
-
+- Regarding the GPU performance, they are reported in benchmark 6, where we can see the huge difference between an integrated GPU and a dedicated one. Also, it interesting to note that the Intel GPU performs better at 1080p than at 540p.
 
 #let show_cpu_benchmark(no_pinning_data, pinning_data, caption, normalized: false) = {
   pagebreak()
@@ -646,7 +816,7 @@ That said, while AI is undeniably one of the most powerful productivity tools wh
   Given the increasing amount of bugs I'm experiencing using all kinds of software, sadly, I think the second scenario is the one's winning.
 - In my opinion, while it democratizes knowledge and gives access to an infinite amount of resources, it makes the learning experience optional and less effective, as one could be tempted to get answers fast and go directly to the solutions without reasoning about things.
 
-To conclude, I think AI is a revolutionary technology, but, as of now, I think it is not ready to be widely adopted in production environments, except as an enhanced Google Search, especially for junior figures. On the other hand, I think that it shouldn't be used by younger students (high school and younger) if not supervised or in a controlled manner, to avoid degrading the learning opportunities.
+To conclude, I think AI is a revolutionary technology, but, as of now, I think it is not ready to be widely adopted in production environments, except as an enhanced Google Search or as an assistant to speedup non-critical tasks, especially for junior figures. On the other hand, I think that it shouldn't be used by younger students (high school and younger) if not supervised or in a controlled manner, to avoid degrading the learning opportunities.
 
 
 #counter(heading).update(0)
@@ -663,7 +833,7 @@ We want to leverage the computational power of the GPU to render the Mandelbrot 
 
 - **Headless Context:** Uses EGL to create an OpenGL context without a windowing system (X11/Wayland), enabling the server to run in Docker or on headless servers.
 - **Compute Shader:** The rendering logic is written in GLSL (`#version 430`).
-- **Precision Optimization:** The shader automatically switches between `float` (FP32) and `double` (FP64). If the zoom level is shallow (`x_scale > 1e-7`), it uses `float` for significantly faster performance (2x-64x depending on hardware).
+- **Precision Optimization:** The shader automatically switches between `float` (FP32) and `double` (FP64). If the zoom level is shallow (`x_scale > 1e-7`), it uses `float` for significantly faster performance.
 - **Persistent Mapping:** Uses `glMapBufferRange` with `GL_MAP_PERSISTENT_BIT` to map GPU memory directly to the CPU's address space, minimizing data transfer overhead.
 - **GPU Selection:** Create a utility function to be able to set the GPU to be used.
 
@@ -687,7 +857,7 @@ void render_opengl_frame(uint16_t *buffer, int width, int start_row,
 
 #pretty_code[
   ```markdown
-## 2. Next features
+## Next features
 
 As of now the project is composed by a frontend and a backend. The frontend is served by an nignx instance and consists in 3 static files:
 - index.html
@@ -745,18 +915,18 @@ Since the webserver functionalities needed for the project were minimal, I decid
 
 The `src/webserver.c` implementation features:
 - *Request Parsing:* A dedicated worker thread (`webserver_worker`) parses the raw HTTP request string using `sscanf` to extract the method and path.
-- *Security:* The `serve_file` function enforces a root directory jail by checking for ".." substring presence, returning `403 Forbidden` if a traversal attempt is detected.
+- *Security:* The `serve_file` function enforces a root directory jail using `realpath`, returning `403 Forbidden` if a traversal attempt is detected.
 - *Concurrency:* A producer-consumer queue (`webserver_enqueue`) allows the main thread to offload file serving tasks to the webserver thread, preventing static file I/O from blocking the Mandelbrot rendering loop.
 
 == The Mandelbrot Set: Definition and Algorithms
 
-The Mandelbrot set is defined as the set of complex numbers $c$ for which the sequence $z_(n+1) = z_n^2 + c$ (starting with $z_0 = 0$) does not diverge to infinity. Mathematically, if $|z_n| > 2$, the sequence is guaranteed to diverge. The "escape time" algorithm iterates this formula up to a maximum limit; the number of iterations reached determines the pixel's color.
+The Mandelbrot set is defined as the set of complex numbers $c$ for which the sequence $z_(n+1) = z_n^2 + c$ (starting with $z_0 = 0$ and $c = x^2 + i y^2$) does not diverge to infinity. Mathematically, if $|z_n| > 2$, the sequence is guaranteed to diverge. The "escape time" algorithm iterates this formula up to a maximum limit; the number of iterations reached determines the pixel's color. So, the black pixels are the ones belonging to the set, while the color shows how "far" the point is from the set.
 
 The algorithm is implemented in `src/mandelbrot.c`:
 - *Scalar Loop:* The `render_scalar` function implements the classic escape time algorithm. It uses the optimization $x^2 + y^2 < 4.0$ to avoid expensive square root calculations.
 - *Algebraic Simplification:* The update rule is expanded to $x_("new") = x^2 - y^2 + x_0$ and $y_("new") = 2 x y + y_0$. By maintaining $x^2$ and $y^2$ as separate variables in the loop, the implementation minimizes the number of multiplication operations per iteration.
 
-=== Threadpool Architecture
+=== Threadpool
 
 To use multi-core processors efficiently without the overhead of constantly creating and destroying threads, a threadpool was implemented.
 I decided not to use something like OpenMP APIs because I wanted to implement a threadpool from scratch in C.
@@ -771,13 +941,13 @@ Implemented in `src/tpool.c`:
 To speed up the mandelbrot computation I decided to employ the techniques learned attending the _Distributed systems: paradigms and models_ course.
 Single Instruction, Multiple Data (SIMD) allows a processor to perform the same operation on multiple data points simultaneously on the same ALU. The project leverages AVX2 (Advanced Vector Extensions) to process four double-precision floating-point numbers at once. To maximize compatibility, the instruction sets supported are `AVX` and `AVX2`. The `render_simd` function in `src/mandelbrot.c` holds the SIMD implementation of the mandelbrot rendering:
 - *Vectorized Math:* It uses intrinsic functions like `_mm256_mul_pd` and `_mm256_add_pd` to perform the complex number arithmetic on four pixels simultaneously (`__m256d`).
-- *Conditional Masking:* Since different pixels diverge at different speeds, standard `if/break` logic cannot be used. Instead, `_mm256_cmp_pd` creates a comparison mask. The iteration count is updated using `_mm256_sub_epi64` only for those elements in the vector that satisfy the condition ($|z|^2 \le 4$).
+- *Conditional Masking:* Since different pixels diverge at different speeds, standard `if/break` logic cannot be used. Instead, `_mm256_cmp_pd` creates a comparison mask. The iteration count is updated using `_mm256_sub_epi64` only for those elements in the vector that satisfy the condition ($|z|^2 < 4$).
 - *Packing:* The final 64-bit integer counters are packed down to 16-bit integers using permutation (`_mm256_permutevar8x32_epi32`) and packing (`_mm_packus_epi32`) instructions for efficient memory storage.
 
-=== OpenGL and GPGPU Abstraction
+=== OpenGL
 
-Finally, I wanted to dive in GPU programming as I never tried to run any algorithm on a graphic accelerator. To implement this part I instructed the agent to use OpenGL since I knew it supports multiple GPUs vendors, meaning that with one algorithm I could render the mandelbrot both on NVIDIA and Intel GPUs (the one I have in my laptop). 
-OpenGL is a cross-language, cross-platform API for rendering vector graphics. While primarily designed for visual output, it can be used for General-Purpose Computing on Graphics Processing Units (GPGPU).
+Finally, I wanted to dive in GPU programming as I never tried to run any algorithm on a graphic accelerator. To implement this part I instructed the agent to use OpenGL since I knew it supports multiple GPUs vendors, meaning that with one algorithm I could render the mandelbrot both on NVIDIA and Intel GPUs (the ones I have in my laptop). 
+OpenGL is a cross-language, cross-platform API for rendering vector graphics. While primarily designed for visual output, it can be also used for general-purpose computing.
 
 The system abstracts the GPU hardware in `src/mandelbrot.c`:
 - *Compute Shaders:* A GLSL compute shader (`#version 430 core`) handles the heavy lifting. It runs one thread per pixel (`gl_GlobalInvocationID`) and implements the Mandelbrot logic, including a geometric optimization that skips calculations for points inside the main cardioid.
@@ -788,7 +958,7 @@ The system abstracts the GPU hardware in `src/mandelbrot.c`:
 
 == JavaScript 2D Canvas and Rendering
 
-Finally, regarding the frontend I decided not to use a framework such as React that I already know and use, but to develop the webapp using only HTML, CSS and JavaScript so that I could learn the basics of web development, which are hidden by the abstractions provided by modern frameworks.
+Finally, regarding the frontend I decided not to use a framework such as React, but to develop the webapp using only HTML, CSS and JavaScript so that I could learn the basics of web development, which are hidden by the abstractions provided by modern frameworks.
 Also, I did not opt for a native GUI because it cannot be easily distributed across different operating systems and architectures, while a browser is available on almost all platforms. Also, this way, the rendering and the visualization can happen on different machines.
 
 The webapp is very simple and features a sidebar with all the controls and a `<canvas>` element which provides a drawing surface where to paint the Mandelbrot. For high-performance rendering, this project uses the `CanvasRenderingContext3D` API, which can leverage the GPU acceleration to paint and render the image.
@@ -797,5 +967,5 @@ The `script.js` handles the application logic:
 - *Binary Protocol:* The client sends coordinates as a string and receives a raw binary `ArrayBuffer` containing 16-bit iteration counts.
 - *Client-Side Coloring:* To allow instant theme switching without re-requesting data, the mapping from iteration count to RGBA color happens in the browser. A `Uint32Array` palette is precomputed.
 - *Buffer Management:* The received data is wrapped in a `Uint16Array`. The script iterates through this array, looks up the color in the palette, and writes the resulting 32-bit pixel value into an `ImageData` buffer's `Uint32Array` view.
-- *Blitting:* The final image is pushed to the GPU-accelerated canvas using `ctx.putImageData` (or `createImageBitmap` for scaling), providing a smooth experience.
+- *Drawing:* The final image is pushed to the GPU-accelerated canvas using `ctx.putImageData` (or `createImageBitmap` for scaling), providing a smooth experience.
 

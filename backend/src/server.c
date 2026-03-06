@@ -118,7 +118,7 @@ void *handle_client(void *arg) {
 
   DEBUG("Client connected (FD: %d)\n", client_fd);
 
-  char payload[WEBSK_PAYLOAD_LEN + 1];
+  char payload[WEBSK_PAYLOAD_LEN + 1] = {0};
 
   while (receive_frame(client_fd, payload, WEBSK_PAYLOAD_LEN)) {
     double x_min, y_min, x_scale, y_scale;

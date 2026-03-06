@@ -28,12 +28,7 @@ tpool_t *tpool_create(int num_threads, int max_queue_size) {
     int core_id = i % num_cores;
     CPU_SET(i, &cpuset);
 
-    int rc =
-        CHECKPTHREAD(pthread_setaffinity_np(pool->threads[i], sizeof(cpu_set_t), &cpuset));
-    if (rc != 0) {
-      fprintf(stderr, "Failed to pin thread %d to core %d: %s\n", i, core_id,
-              strerror(rc));
-    }
+    CHECKPTHREAD(pthread_setaffinity_np(pool->threads[i], sizeof(cpu_set_t), &cpuset));
 #endif /* ifdef THREAD_PINNING */
   }
 
@@ -60,10 +55,6 @@ void tpool_shutdown(tpool_t *pool) {
 
 void tpool_add_work(tpool_t *pool, void (*func)(void *), void *arg) {
   CHECKPTHREAD(pthread_mutex_lock(&pool->lock));
-  // Drop task if the queue is full
-  if (pool->count + 1 > pool->queue_size)
-    goto unlock_tp;
-
   // Add task
   pool->queue[pool->queue_tail] =
       (thread_task_t){.function = func, .argument = arg};

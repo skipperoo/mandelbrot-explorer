@@ -35,31 +35,19 @@ static void serve_file(int client_fd, const char *root_path, const char *path) {
   char resolved_path[PATH_MAX];
   const char *target_path = path;
 
-  // 1. Handle default index route
   if (strcmp(path, "/") == 0) {
     target_path = "/index.html";
   }
 
-  // 2. Construct the full requested path
   snprintf(raw_path, sizeof(raw_path), "%s%s", root_path, target_path);
+  realpath(raw_path, resolved_path);
 
-  // 3. Resolve path to remove all "..", ".", and symlinks.
-  // If the file doesn't exist, realpath returns NULL.
-  if (realpath(raw_path, resolved_path) == NULL) {
-    const char *res = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-    send(client_fd, res, strlen(res), 0);
-    return;
-  }
-
-  // 4. Security Check: Prevent directory traversal (Root Escape)
-  // Ensure the final resolved path strictly begins with our server root.
   if (strncmp(resolved_path, root_path, strlen(root_path)) != 0) {
     const char *res = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n";
     send(client_fd, res, strlen(res), 0);
     return;
   }
 
-  // 5. Open the file and verify it's a regular file
   int fd = open(resolved_path, O_RDONLY);
   if (fd < 0) {
     const char *res = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";

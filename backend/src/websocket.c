@@ -120,7 +120,6 @@ int receive_frame(int client_fd, char *out_payload, size_t max_len) {
   } else {
     memcpy(out_payload, buffer, payload_len);
   }
-  out_payload[payload_len] = '\0'; // Null terminate string
   free(buffer);
 
   return 1;

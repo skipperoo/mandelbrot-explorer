@@ -31,7 +31,7 @@
   }
 )
 
-#let pretty_code(label: none, body) = {
+#let pretty_code(label: none, show_line_number: true, body) = {
   // Use a 'show' rule to intercept raw blocks inside this function.
   // This works even if there are spaces or newlines around your code.
   show raw.where(block: true): it => {
@@ -44,7 +44,7 @@
       row-gutter: 0.6em, // Tweak this if lines look too squeezed/loose
       ..lines.enumerate().map(((i, line)) => {
         (
-          align(right, text(fill: gray)[#str(i + 1)]),
+          if (show_line_number){align(right, text(fill: gray)[#str(i + 1)])} else {},
           // We re-wrap the line in raw() to keep basic syntax highlighting
           raw(line, lang: it.lang) 
         )

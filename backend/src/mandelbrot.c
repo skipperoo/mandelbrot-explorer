@@ -332,7 +332,6 @@ void render_opengl_frame(uint16_t *buffer, int width, int start_row,
                          int end_row, int max_iterations, double x_min,
                          double y_min, double x_scale, double y_scale) {
   struct timespec t0, t1, t2, t3;
-  clock_gettime(CLOCK_MONOTONIC, &t0);
 
   int rows = end_row - start_row;
   size_t num_pixels = width * rows;
@@ -398,13 +397,7 @@ void render_opengl_frame(uint16_t *buffer, int width, int start_row,
   // Barrier to ensure GPU is done writing
   glMemoryBarrier_ptr(GL_SHADER_STORAGE_BARRIER_BIT);
 
-  // To ensure the CPU waits for the GPU, we might need a fence,
-  // but glFinish() is a simple (though heavy) way to verify timing impact.
-  // Actually, Persistent Coherent mapping handles visibility, but we still need
-  // sync.
   glFinish();
-
-  clock_gettime(CLOCK_MONOTONIC, &t1);
 
   // 6. Read back: With persistent mapping, we just access gl_mapped_buffer.
   // If mapping failed, we fallback to glGetBufferSubData.
@@ -415,7 +408,6 @@ void render_opengl_frame(uint16_t *buffer, int width, int start_row,
     src_ptr = gpu_temp_buffer;
   }
 
-  clock_gettime(CLOCK_MONOTONIC, &t2);
 
   // 7. SIMD-optimized Downcast
   size_t i = 0;
@@ -443,17 +435,6 @@ void render_opengl_frame(uint16_t *buffer, int width, int start_row,
     buffer[i] = (val > 65535) ? 65535 : (uint16_t)val;
   }
 
-  clock_gettime(CLOCK_MONOTONIC, &t3);
-
-  double t_dispatch =
-      (t1.tv_sec - t0.tv_sec) * 1000.0 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
-  double t_readback =
-      (t2.tv_sec - t1.tv_sec) * 1000.0 + (t2.tv_nsec - t1.tv_nsec) / 1e6;
-  double t_downcast =
-      (t3.tv_sec - t2.tv_sec) * 1000.0 + (t3.tv_nsec - t2.tv_nsec) / 1e6;
-
-  // DEBUG("[GPU Detail] Dispatch: %.2fms | Readback: %.2fms | Downcast:
-  // %.2fms\n", t_dispatch, t_readback, t_downcast);
 }
 
 void shutdown_opengl() {

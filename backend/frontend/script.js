@@ -2,7 +2,7 @@ class MandelbrotViewer {
   constructor() {
     this.socketUrl = `ws://${window.location.host}/ws`;
     this.canvas = document.getElementById('mandelbrotCanvas');
-    this.ctx = this.canvas.getContext('2d', { alpha: true }); // Optimize for no alpha
+    this.ctx = this.canvas.getContext('2d', { alpha: false }); // Mandelbrot doesn't need alpha
 
     this.state = {
       x: -2.3,
@@ -29,6 +29,7 @@ class MandelbrotViewer {
     this.maxIterations = 10000;
     this.hasMoved = false;
     this.lastFrameTime = performance.now();
+    this.drawId = 0; // Track frame order for async rendering
 
     this.currentTheme = 'ocean';
     this.palette = new Uint32Array(this.maxIterations + 1);
@@ -201,6 +202,7 @@ class MandelbrotViewer {
   draw() {
     if (!this.lastIterations) return;
 
+    const drawId = ++this.drawId;
     const width = Math.floor(this.canvas.width / this.resolutionDivider);
     const height = Math.floor(this.canvas.height / this.resolutionDivider);
 
@@ -217,6 +219,7 @@ class MandelbrotViewer {
 
     if (this.resolutionDivider > 1) {
       createImageBitmap(imageData).then(bitmap => {
+        if (drawId !== this.drawId) return;
         this.ctx.imageSmoothingEnabled = false;
         this.ctx.drawImage(bitmap, 0, 0, this.canvas.width, this.canvas.height);
       });
@@ -418,20 +421,19 @@ class MandelbrotViewer {
     if (!this.isPlaying) return;
 
     const now = Date.now();
-    const elapsed = now - this.animStartTime;
-    const progress = elapsed / this.animDuration;
+    let elapsed = now - this.animStartTime;
+    let progress = elapsed / this.animDuration;
 
     if (progress >= 1.0) {
       // Move to next segment
       this.animIndex++;
-      this.animStartTime = Date.now();
+      this.animStartTime = now;
       if (this.animIndex >= this.animationPath.length - 1) {
         // End of animation
-        this.isPlaying = false;
-        document.body.style.pointerEvents = 'auto';
-        document.getElementById('btnStop').disabled = true;
+        this.stopAnimation();
         return;
       }
+      progress = 0; // Reset progress for the new segment to prevent jumping to its end
     }
 
     // Interpolate between animIndex and animIndex + 1
@@ -498,7 +500,7 @@ class MandelbrotViewer {
         this.animationPath = data.keyframes;
         this.renderKeyframeList();
         alert(`Loaded ${data.keyframes.length} keyframes`);
-        if (data.keyframes.length >= 2) btnPlay.disabled = false;
+        if (data.keyframes.length >= 2) document.getElementById('btnPlay').disabled = false;
       } catch (err) {
         alert('Failed to import animation: ' + err.message);
       }
