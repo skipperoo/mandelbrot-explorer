@@ -53,11 +53,6 @@ Access the application at **[http://localhost:8080](http://localhost:8080)**.
 | **Reset**    | Double Click                             |
 | **Settings** | UI Panels (Resolution, Theme, Animation) |
 
-## Documentation
-
-- [specs.md](specs.md) - Technical specifications and protocol definitions.
-- [docs.md](docs.md) - Architecture overview and implementation details.
-
 ---
 
 (c) 2026 - Leonardo Scoppitto
